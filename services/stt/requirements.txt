@@ -1,0 +1,12 @@
+fastapi==0.121.0
+uvicorn[standard]==0.34.0
+python-multipart==0.0.18
+numpy<3
+langdetect==1.0.9
+# Engines (both installed; STT_ENGINE picks one at runtime)
+faster-whisper==1.2.1
+ctranslate2==4.8.5
+onnx-asr[cpu,hub]==0.12.0
+onnxruntime==1.31.1
+# faster-whisper 1.2.1 passes an argument removed in newer PyAV
+av==15.1.0

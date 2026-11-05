@@ -1,0 +1,22 @@
+services:
+  # Local CPU speech-to-text, wire-compatible with Omi's self-hosted Parakeet
+  # service. Point the Omi backend at it with
+  #   HOSTED_PARAKEET_API_URL=http://stt:8000  (STT_SERVICE_MODELS=parakeet)
+  # Swap the model with STT_ENGINE in .env, then `docker compose up -d stt`.
+  stt:
+    build: ./services/stt
+    image: omi-local-stt:latest
+    restart: unless-stopped
+    user: "1000:1000"
+    env_file: .env
+    cpus: ${STT_THREADS:-4}
+    ports:
+      - "127.0.0.1:${STT_PORT:-8100}:8000"
+    volumes:
+      - ./.cache/models:/cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 120s
+      retries: 3
