@@ -1,0 +1,4 @@
+[submodule "upstream/omi"]
+	path = upstream/omi
+	url = https://github.com/BasedHardware/omi.git
+	shallow = true
