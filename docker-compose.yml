@@ -20,3 +20,78 @@ services:
       timeout: 5s
       start_period: 120s
       retries: 3
+
+  # Local CPU embedding server, OpenAI /v1/embeddings-compatible (replaces
+  # text-embedding-3-large). Reached through llm-proxy, which routes
+  # /v1/embeddings here, so the backend needs no extra setting.
+  embed:
+    build: ./services/embed
+    image: omi-local-embed:latest
+    restart: unless-stopped
+    user: "1000:1000"
+    env_file: .env
+    cpus: ${EMBED_THREADS:-4}
+    ports:
+      - "127.0.0.1:${EMBED_PORT:-8102}:8000"
+    volumes:
+      - ./.cache/models:/cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 300s
+      retries: 3
+
+  # OpenAI-compatible pass-through to the host's vLLM that rewrites model
+  # names (upstream Omi hardcodes gpt-6-luna / gpt-5-nano). Point the Omi
+  # backend and llm_gateway at it with OPENAI_BASE_URL=http://llm-proxy:8000/v1.
+  llm-proxy:
+    build: ./services/llm-proxy
+    image: omi-local-llm-proxy:latest
+    restart: unless-stopped
+    user: "1000:1000"
+    env_file: .env
+    depends_on:
+      - embed
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:${LLM_PROXY_PORT:-8101}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+
+  # Firebase Emulator Suite (Firestore + Auth + UI), replacing Firebase for the
+  # Omi backend: FIRESTORE_EMULATOR_HOST=firebase:8103,
+  # FIREBASE_AUTH_EMULATOR_HOST=firebase:8104. Ports are fixed in
+  # services/firebase/firebase.json and published 1:1, because the Emulator UI
+  # makes the browser connect to the emulators on their in-container ports.
+  # Data is exported to state/firebase/ on a clean stop and imported on start.
+  firebase:
+    build: ./services/firebase
+    image: omi-local-firebase:latest
+    restart: unless-stopped
+    user: "1000:1000"
+    env_file: .env
+    environment:
+      JAVA_TOOL_OPTIONS: ${FIREBASE_JAVA_OPTS:--Xmx1g}
+    init: true
+    stop_grace_period: 60s
+    ports:
+      - "127.0.0.1:8103:8103"   # Firestore
+      - "127.0.0.1:8104:8104"   # Auth
+      - "127.0.0.1:8105:8105"   # Emulator UI
+      - "127.0.0.1:8106:8106"   # Firestore UI websocket
+    volumes:
+      - ./state/firebase:/data
+      - ./upstream/omi/firestore.rules:/config/firestore.rules:ro
+      - ./upstream/omi/firestore.indexes.json:/config/firestore.indexes.json:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "Promise.all(['http://127.0.0.1:8103/','http://127.0.0.1:8104/'].map(u=>fetch(u).then(r=>{if(!r.ok)throw 0}))).then(()=>process.exit(0),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3

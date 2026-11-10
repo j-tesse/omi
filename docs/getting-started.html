@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Omi, locally — getting started</title>
+    <link rel="stylesheet" href="learnkit/kit.css" />
+    <style>
+      :root { --lk-accent: #6b4ef6; }
+      @media (prefers-color-scheme: dark) { :root { --lk-accent: #a08cff; } }
+
+      /* code blocks: wrap, never scroll sideways */
+      .cmd {
+        font-family: var(--lk-mono); font-size: 15px; line-height: 1.5;
+        background: var(--lk-raised); border-radius: 10px; padding: 12px 14px;
+        margin: 10px 0 0; white-space: pre-wrap; overflow-wrap: anywhere;
+      }
+      .cmd .c { color: var(--lk-muted); }
+
+      /* ---- pipeline scrolly ---- */
+      .pipe .node rect { fill: var(--lk-surface); stroke: var(--lk-muted); stroke-width: 1.5; }
+      .pipe .node { opacity: .28; }
+      .pipe .node text { font-size: 17px; font-weight: 600; }
+      .pipe .node .sub { font-size: 14px; font-weight: 400; fill: var(--lk-muted); }
+      .pipe .arrow { stroke: var(--lk-muted); stroke-width: 2; opacity: .28; }
+      .pipe .cloud { opacity: 0; }
+      .pipe .cloud text { font-size: 14px; font-weight: 700; fill: var(--lk-bad); }
+      .pipe .lock { opacity: 0; }
+      .pipe .lock text { font-size: 14px; font-weight: 700; fill: var(--lk-good); }
+
+      /* light nodes cumulatively; with no JS show the full chain */
+      .lk-scrolly-figure:not([data-active-step]) .node,
+      .lk-scrolly-figure:not([data-active-step]) .arrow { opacity: 1; }
+      [data-active-step="1"] .n1,
+      [data-active-step="2"] :is(.n1,.n2,.a1),
+      [data-active-step="3"] :is(.n1,.n2,.n3,.a1,.a2),
+      [data-active-step="4"] :is(.n1,.n2,.n3,.n4,.a1,.a2,.a3),
+      [data-active-step="5"] :is(.n1,.n2,.n3,.n4,.n5,.a1,.a2,.a3,.a4),
+      [data-active-step="6"] :is(.node,.arrow),
+      [data-active-step="7"] :is(.node,.arrow) { opacity: 1; }
+      [data-active-step="1"] .n1 rect, [data-active-step="2"] .n2 rect,
+      [data-active-step="3"] .n3 rect, [data-active-step="4"] .n4 rect,
+      [data-active-step="5"] .n5 rect, [data-active-step="6"] .n6 rect {
+        stroke: var(--lk-accent); stroke-width: 3; fill: var(--lk-accent-soft);
+      }
+      [data-active-step="6"] .cloud { opacity: 1; }
+      [data-active-step="7"] .lock { opacity: 1; }
+      [data-active-step="7"] .node rect { stroke: var(--lk-good); }
+
+      /* ---- dependency table ---- */
+      .deps { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 10px; }
+      .deps li {
+        background: var(--lk-surface); border-radius: 12px; padding: 12px 14px;
+        border-left: 5px solid var(--lk-muted);
+      }
+      .deps .what { font-weight: 700; }
+      .deps .swap { color: var(--lk-muted); font-size: 16px; margin-top: 2px; }
+      .deps .swap s { opacity: .8; }
+      .pill {
+        float: right; font-size: 13px; font-weight: 700; padding: 2px 9px;
+        border-radius: 99px; background: var(--lk-raised); margin-left: 8px;
+      }
+      .deps .run { border-left-color: var(--lk-good); }
+      .deps .run .pill { background: color-mix(in srgb, var(--lk-good) 18%, transparent); color: var(--lk-good); }
+      .deps .tbd { border-left-color: var(--lk-warn); }
+      .deps .tbd .pill { background: color-mix(in srgb, var(--lk-warn) 18%, transparent); color: var(--lk-warn); }
+      .deps .off .pill { color: var(--lk-muted); }
+
+      /* ---- engines ---- */
+      .eng h3 { margin: 0 0 4px; }
+      .eng .lk-big { margin: 4px 0; }
+      .eng p { margin: 4px 0; font-size: 16px; }
+      .cpu-out { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+      .cpu-out div { background: var(--lk-surface); border-radius: 12px; padding: 12px; text-align: center; }
+      .cpu-out b { display: block; font-size: 26px; }
+      .bar { height: 10px; border-radius: 5px; background: var(--lk-accent); margin-top: 8px; transition: width .3s; }
+      .bar.w { background: var(--lk-warn); }
+
+      /* ---- streaming stepper ---- */
+      .wave rect.chunk { fill: var(--lk-accent); }
+      .wave rect.sil { fill: var(--lk-muted); opacity: .35; }
+      .wave .hang, .wave .cut, .wave .out { opacity: 0; transition: opacity .4s; }
+      .wave text { font-size: 15px; }
+      .wave .lbl { font-weight: 700; }
+      .wave .chunk { opacity: .25; transition: opacity .4s; }
+      [data-active-step="1"] .wave .chunk.c1,
+      [data-active-step="2"] .wave .chunk,
+      [data-active-step="3"] .wave .chunk,
+      [data-active-step="4"] .wave .chunk { opacity: 1; }
+      [data-active-step="3"] .wave .hang,
+      [data-active-step="4"] .wave .hang,
+      [data-active-step="4"] .wave .cut,
+      [data-active-step="4"] .wave .out { opacity: 1; }
+
+      /* ---- repo map ---- */
+      .tree { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 8px; }
+      .tree button {
+        width: 100%; min-height: 48px; text-align: left; font: inherit;
+        font-family: var(--lk-mono); font-size: 16px; color: var(--lk-text);
+        background: var(--lk-surface); border: 1px solid var(--lk-raised);
+        border-radius: 12px; padding: 10px 14px; cursor: pointer;
+      }
+      .tree button::after { content: " ＋"; float: right; color: var(--lk-muted); }
+      .tree button[aria-expanded="true"]::after { content: " －"; }
+      .tree .lk-toggle-body { padding: 8px 14px 4px; font-size: 16px; }
+    </style>
+  </head>
+  <body>
+    <main class="lk">
+      <!-- HOOK -->
+      <header class="lk-hero">
+        <p class="lk-kicker">Omi, on your own server</p>
+        <h1>Where do your words go when you wear an Omi?</h1>
+        <p class="lk-lede">Normally: through half a dozen cloud services. This repo is about bringing them home — here's how it all fits together, and how to drive it.</p>
+        <p class="lk-scroll-hint">Scroll ↓</p>
+      </header>
+
+      <!-- WHAT IS OMI -->
+      <section class="lk-screen">
+        <p class="lk-kicker">First: what is Omi?</p>
+        <h2>A pendant that listens, and a backend that remembers</h2>
+        <p data-lk-reveal>Omi is an open-source wearable. A small <span class="lk-term">pendant</span> records what you hear and say all day.</p>
+        <p data-lk-reveal>The audio becomes <strong>conversations</strong> (transcripts + summaries), <strong>memories</strong> (facts about you) and a <strong>chat</strong> you can ask questions.</p>
+        <div class="lk-callout lk-callout--tip" data-lk-reveal><strong>Key idea</strong> The pendant is dumb. All the smarts live in the <em>backend</em> — and the backend is what we're running locally.</div>
+      </section>
+
+      <!-- PIPELINE SCROLLY -->
+      <section class="lk-scrolly" data-lk-scrolly>
+        <div class="lk-scrolly-figure">
+          <svg class="pipe" viewBox="0 0 360 400" role="img" aria-label="Omi data pipeline: pendant, phone app, backend, speech-to-text, LLM, database">
+            <g class="node n1"><rect x="50" y="6" width="260" height="50" rx="12"/><text x="70" y="37">🎙 Pendant</text><text class="sub" x="190" y="37">mic + Bluetooth</text></g>
+            <line class="arrow a1" x1="180" y1="56" x2="180" y2="72"/>
+            <g class="node n2"><rect x="50" y="72" width="260" height="50" rx="12"/><text x="70" y="103">📱 Phone app</text><text class="sub" x="200" y="103">relays audio</text></g>
+            <line class="arrow a2" x1="180" y1="122" x2="180" y2="138"/>
+            <g class="node n3"><rect x="50" y="138" width="260" height="50" rx="12"/><text x="70" y="169">⚙️ Backend</text><text class="sub" x="190" y="169">FastAPI, Python</text></g>
+            <line class="arrow a3" x1="180" y1="188" x2="180" y2="204"/>
+            <g class="node n4"><rect x="50" y="204" width="260" height="50" rx="12"/><text x="70" y="235">🗣 Speech→text</text><text class="sub" x="222" y="235">STT</text></g>
+            <line class="arrow a4" x1="180" y1="254" x2="180" y2="270"/>
+            <g class="node n5"><rect x="50" y="270" width="260" height="50" rx="12"/><text x="70" y="301">🧠 LLM</text><text class="sub" x="160" y="301">summaries, memories</text></g>
+            <line class="arrow a5" x1="180" y1="320" x2="180" y2="336"/>
+            <g class="node n6"><rect x="50" y="336" width="260" height="50" rx="12"/><text x="70" y="367">🗄 Storage</text><text class="sub" x="180" y="367">DB, search, files</text></g>
+            <g class="cloud">
+              <text x="318" y="169">☁</text><text x="318" y="235">☁</text><text x="318" y="301">☁</text><text x="318" y="367">☁</text>
+            </g>
+            <g class="lock">
+              <text x="316" y="169">🏠</text><text x="316" y="235">🏠</text><text x="316" y="301">🏠</text><text x="316" y="367">🏠</text>
+            </g>
+          </svg>
+        </div>
+        <div class="lk-scrolly-steps">
+          <div class="lk-scrolly-step" data-step="1"><strong>The pendant</strong> captures audio and streams it over Bluetooth. It does no processing.</div>
+          <div class="lk-scrolly-step" data-step="2"><strong>The phone app</strong> forwards the audio stream over a WebSocket to the backend.</div>
+          <div class="lk-scrolly-step" data-step="3"><strong>The backend</strong> (in <code>upstream/omi/backend/</code>) orchestrates everything else.</div>
+          <div class="lk-scrolly-step" data-step="4"><strong>Speech-to-text</strong> turns audio into timestamped text segments, live.</div>
+          <div class="lk-scrolly-step" data-step="5"><strong>An LLM</strong> reads the transcript and writes summaries, extracts memories, answers chat.</div>
+          <div class="lk-scrolly-step" data-step="6">Upstream, the last four boxes are <strong>cloud services</strong> ☁ — Deepgram, OpenAI, Firebase, Google Cloud…</div>
+          <div class="lk-scrolly-step" data-step="7"><strong>This repo's goal:</strong> run every one of them on <em>this</em> server 🏠. Your audio never leaves the house.</div>
+        </div>
+      </section>
+
+      <!-- THE HARDWARE CONSTRAINT -->
+      <section class="lk-screen">
+        <p class="lk-kicker">The one big constraint</p>
+        <h2>The GPU is taken</h2>
+        <div class="lk-big" data-lk-count="31.7" data-lk-decimals="1" data-lk-suffix=" / 32 GB">0</div>
+        <p>The RTX 5090's memory is held by the existing <strong>vLLM</strong> container running Gemma 31B — that's our local LLM, at <code>localhost:8000/v1</code>.</p>
+        <div class="lk-callout"><strong>Decision</strong> vLLM keeps the GPU. Everything else — speech-to-text included — runs on the 12-core Ryzen CPU.</div>
+      </section>
+
+      <!-- CLOUD → LOCAL MAP -->
+      <section class="lk-screen">
+        <p class="lk-kicker">The swap list</p>
+        <h2>Each cloud service gets a local stand-in</h2>
+        <p>Here's where each one stands today.</p>
+        <ul class="deps" data-lk-stagger="120">
+          <li class="run"><span class="pill">Running</span><div class="what">Speech-to-text</div><div class="swap"><s>Deepgram</s> → our <code>stt</code> service</div></li>
+          <li class="tbd"><span class="pill">TBD</span><div class="what">LLM</div><div class="swap"><s>OpenAI</s> → Gemma on vLLM via an alias layer</div></li>
+          <li class="tbd"><span class="pill">TBD</span><div class="what">Embeddings</div><div class="swap"><s>OpenAI</s> → CPU embedding server</div></li>
+          <li class="tbd"><span class="pill">TBD</span><div class="what">Auth + database</div><div class="swap"><s>Firebase</s> → Firebase Emulator Suite</div></li>
+          <li class="tbd"><span class="pill">TBD</span><div class="what">Search, cache</div><div class="swap">Typesense + Redis containers</div></li>
+          <li class="tbd"><span class="pill">TBD</span><div class="what">Audio files</div><div class="swap"><s>Google Cloud Storage</s> → local disk</div></li>
+          <li class="off"><span class="pill">Off</span><div class="what">Vector DB, web search, payments…</div><div class="swap">Left unset = feature disabled</div></li>
+        </ul>
+      </section>
+
+      <section class="lk-screen">
+        <p class="lk-kicker">Why the LLM is tricky</p>
+        <h2>Upstream hard-codes model names</h2>
+        <p>Every backend feature asks for <code>gpt-6-luna</code> or <code>gpt-5-nano</code> by name — there's no setting to change it.</p>
+        <div class="lk-compare">
+          <div><strong>Backend asks for</strong><br><code>gpt-6-luna</code></div>
+          <div><strong>Alias layer serves</strong><br>Gemma on vLLM</div>
+        </div>
+        <p>The plan: point <code>OPENAI_BASE_URL</code> at a small proxy that renames requests on the way through.</p>
+      </section>
+
+      <!-- STT SERVICE -->
+      <section class="lk-screen">
+        <p class="lk-kicker">The part that runs today</p>
+        <h2>The <code>stt</code> service</h2>
+        <p>A small CPU-only web server in <code>services/stt/</code>. It speaks <em>exactly</em> the same protocol as upstream's self-hosted Parakeet service.</p>
+        <div class="lk-callout lk-callout--tip"><strong>Why that matters</strong> The Omi backend can use it with zero code changes — just two env vars:
+          <div class="cmd">STT_SERVICE_MODELS=parakeet
+HOSTED_PARAKEET_API_URL=http://stt:8000</div>
+        </div>
+      </section>
+
+      <section class="lk-screen">
+        <p class="lk-kicker">Two engines, one switch</p>
+        <h2>Fast, or noise-proof?</h2>
+        <div class="lk-compare eng">
+          <div>
+            <h3>Parakeet v3</h3>
+            <div class="lk-big" data-lk-count="45" data-lk-suffix="×">0</div>
+            <p>real-time</p>
+            <p>~1 s delay live</p>
+            <p>Slips in heavy noise</p>
+          </div>
+          <div>
+            <h3>Whisper turbo</h3>
+            <div class="lk-big" data-lk-count="3.6" data-lk-decimals="1" data-lk-suffix="×">0</div>
+            <p>real-time</p>
+            <p>~4–5 s delay live</p>
+            <p>Solid down to 0 dB</p>
+          </div>
+        </div>
+        <p><strong>Current pick: Parakeet.</strong> Whisper is one line in <code>.env</code> away, until real pendant recordings settle it.</p>
+      </section>
+
+      <section class="lk-screen">
+        <p class="lk-kicker">Try it</p>
+        <h2>What does a day of audio cost?</h2>
+        <p>"45× real-time" means 1 hour of audio takes 1/45 hour of CPU (at 4 threads). Drag:</p>
+        <div class="lk-slider" data-lk-slider id="hours">
+          <label>Audio recorded per day: <span data-lk-out></span> h</label>
+          <input type="range" min="1" max="24" value="12">
+        </div>
+        <div class="cpu-out">
+          <div>Parakeet<b id="tp">16 min</b><div class="bar" id="bp" style="width:4%"></div></div>
+          <div>Whisper<b id="tw">3.3 h</b><div class="bar w" id="bw" style="width:50%"></div></div>
+        </div>
+        <p style="margin-top:12px;color:var(--lk-muted)">Both fit easily in a day — the real difference is live delay and noise.</p>
+      </section>
+
+      <!-- STREAMING -->
+      <section class="lk-screen">
+        <p class="lk-kicker">How live transcription works</p>
+        <h2>From audio stream to sentence</h2>
+        <div class="lk-stepper" data-lk-stepper>
+          <svg class="wave" viewBox="0 0 360 150" role="img" aria-label="Audio chunks, a silence gap, and a cut producing a text segment">
+            <rect class="chunk c1" x="10" y="40" width="30" height="40" rx="4"/>
+            <rect class="chunk c1" x="44" y="30" width="30" height="60" rx="4"/>
+            <rect class="chunk" x="78" y="45" width="30" height="30" rx="4"/>
+            <rect class="chunk" x="112" y="25" width="30" height="70" rx="4"/>
+            <rect class="chunk" x="146" y="40" width="30" height="40" rx="4"/>
+            <rect class="sil" x="180" y="56" width="90" height="8" rx="4"/>
+            <g class="hang"><text x="182" y="40">0.7 s quiet</text></g>
+            <g class="cut"><line x1="225" y1="20" x2="225" y2="100" stroke="var(--lk-bad)" stroke-width="3" stroke-dasharray="6 4"/></g>
+            <g class="out"><text class="lbl" x="10" y="132">→ {"text": "Hello there", …}</text></g>
+          </svg>
+          <div class="lk-stepper-panel">The app sends raw <strong>PCM16</strong> audio to <code>WS /v3/stream</code>, a chunk at a time.</div>
+          <div class="lk-stepper-panel">A <span class="lk-term">VAD</span> (voice activity detector) marks which chunks contain speech, and the service buffers them.</div>
+          <div class="lk-stepper-panel">When speech stops for <strong>0.7 s</strong> (<code>STT_STREAM_HANGOVER_S</code>), the utterance is over.</div>
+          <div class="lk-stepper-panel">The engine transcribes just that clip and sends back a <strong>segment</strong> JSON. Long monologues are force-cut at 15 s.</div>
+        </div>
+        <p style="margin-top:14px">Batch files go to <code>POST /v1/transcribe</code> or <code>/v2/transcribe</code> instead — same engine, whole file at once.</p>
+      </section>
+
+      <!-- HANDS ON -->
+      <section class="lk-screen">
+        <p class="lk-kicker">Hands on</p>
+        <h2>Run it in four commands</h2>
+        <ol class="lk-steps">
+          <li><strong>Configure.</strong> Every variable is documented inside.
+            <div class="cmd">cp .env.example .env</div></li>
+          <li><strong>Start.</strong> First boot downloads models to <code>.cache/models/</code>.
+            <div class="cmd">docker compose up -d --build</div></li>
+          <li><strong>Smoke-test</strong> health, batch and streaming.
+            <div class="cmd">scripts/test_stt.sh</div></li>
+          <li><strong>Watch</strong> it work.
+            <div class="cmd">docker compose logs -f stt</div></li>
+        </ol>
+      </section>
+
+      <section class="lk-screen">
+        <p class="lk-kicker">Common tweaks</p>
+        <h2>Swap the engine</h2>
+        <div class="cmd"><span class="c"># in .env</span>
+STT_ENGINE=whisper
+<span class="c"># apply</span>
+docker compose up -d stt</div>
+        <h2 style="margin-top:28px">Test with your own audio</h2>
+        <div class="cmd">scripts/test_stt.sh my.wav 1</div>
+        <p>The <code>1</code> streams at real speed, like a real pendant.</p>
+        <h2 style="margin-top:28px">Benchmark accuracy in noise</h2>
+        <div class="cmd">NOISE=pink SNRS="clean 10 0" \
+REFERENCE="what was said" \
+scripts/bench_stt.sh my.wav</div>
+        <p>Results land in <code>results/bench_stt/</code> with word error rates.</p>
+      </section>
+
+      <!-- REPO MAP -->
+      <section class="lk-screen">
+        <p class="lk-kicker">Find your way</p>
+        <h2>The repo, folder by folder</h2>
+        <p>Tap to open.</p>
+        <ul class="tree">
+          <li><button data-lk-toggle="#t1" aria-expanded="false">AGENTS.md</button>
+            <div id="t1" class="lk-toggle-body" hidden>The living source of truth: hardware, ports, decisions, status. Read it first; keep it updated.</div></li>
+          <li><button data-lk-toggle="#t2" aria-expanded="false">services/stt/</button>
+            <div id="t2" class="lk-toggle-body" hidden><code>app/main.py</code> endpoints · <code>engines.py</code> the models · <code>pipeline.py</code> VAD + chunking · <code>stream.py</code> live sessions. New engine = subclass <code>Engine</code>.</div></li>
+          <li><button data-lk-toggle="#t3" aria-expanded="false">scripts/</button>
+            <div id="t3" class="lk-toggle-body" hidden><code>test_stt.sh</code> and <code>bench_stt.sh</code>. Persisted scripts are preferred over one-off commands.</div></li>
+          <li><button data-lk-toggle="#t4" aria-expanded="false">upstream/omi/</button>
+            <div id="t4" class="lk-toggle-body" hidden>The real Omi code as a git submodule (<code>git submodule update --init</code>). <strong>Never edit it</strong> — configure it from outside.</div></li>
+          <li><button data-lk-toggle="#t5" aria-expanded="false">.cache/ data/ results/</button>
+            <div id="t5" class="lk-toggle-body" hidden>Models, sample audio, benchmark output. Git-ignored.</div></li>
+        </ul>
+      </section>
+
+      <!-- QUIZ -->
+      <section class="lk-screen">
+        <p class="lk-kicker">Check yourself</p>
+        <div class="lk-quiz" data-lk-quiz>
+          <p class="lk-quiz-q">Why does speech-to-text run on the CPU?</p>
+          <button data-why="Not quite — Parakeet is plenty fast on CPU, but that's not the reason.">GPUs can't run speech models</button>
+          <button data-correct data-why="Right. vLLM holds ~31.7 of the 32 GB, so everything else goes to the CPU.">The GPU is reserved for vLLM</button>
+          <button data-why="No — the CPU is a separate budget; this is about the GPU being full.">To save electricity</button>
+        </div>
+        <div class="lk-quiz" data-lk-quiz style="margin-top:24px">
+          <p class="lk-quiz-q">How does the Omi backend use our <code>stt</code> service without code changes?</p>
+          <button data-why="We never edit upstream — that's a project rule.">We patched the backend</button>
+          <button data-correct data-why="Yes. It mimics upstream's Parakeet protocol, so HOSTED_PARAKEET_API_URL is all it takes.">It speaks the Parakeet protocol</button>
+          <button data-why="Deepgram was retired upstream — and it's cloud.">It pretends to be Deepgram</button>
+        </div>
+        <div class="lk-quiz" data-lk-quiz style="margin-top:24px">
+          <p class="lk-quiz-q">You want to try Whisper. What do you do?</p>
+          <button data-why="Both engines are already in the same image — no rebuild of code needed.">Edit engines.py</button>
+          <button data-correct data-why="Exactly — one env var, then restart the container.">Set STT_ENGINE=whisper, then docker compose up -d stt</button>
+          <button data-why="Whisper runs on CPU here too.">Free up the GPU</button>
+        </div>
+      </section>
+
+      <!-- RECAP -->
+      <section class="lk-screen">
+        <div class="lk-recap">
+          <h3>Recap</h3>
+          <ul>
+            <li>Omi = pendant → phone → <strong>backend</strong> → STT → LLM → storage.</li>
+            <li>This repo replaces each cloud piece with a local container; the GPU stays with vLLM.</li>
+            <li><strong>Running now:</strong> the <code>stt</code> service (Parakeet, Whisper one switch away).</li>
+            <li><strong>Next up:</strong> LLM alias layer, Firebase emulators, Redis, Typesense — then wiring the backend.</li>
+            <li>Never edit <code>upstream/</code>; keep <code>AGENTS.md</code> true.</li>
+          </ul>
+        </div>
+        <p style="margin-top:20px">Want a deeper page on any piece — the backend, the streaming protocol, or the LLM plan? Just ask.</p>
+      </section>
+    </main>
+    <script src="learnkit/kit.js"></script>
+    <script>
+      // Day-of-audio slider → CPU time per engine (4 threads)
+      (function () {
+        var fmt = function (h) { return h < 1 ? Math.round(h * 60) + " min" : h.toFixed(1) + " h"; };
+        LK.onStep("#hours", function (v) {
+          var h = Number(v) || 12, p = h / 45, w = h / 3.6;
+          document.getElementById("tp").textContent = fmt(p);
+          document.getElementById("tw").textContent = fmt(w);
+          document.getElementById("bp").style.width = Math.max(2, (p / 24) * 100) + "%";
+          document.getElementById("bw").style.width = Math.max(2, (w / 24) * 100) + "%";
+        });
+      })();
+    </script>
+  </body>
+</html>

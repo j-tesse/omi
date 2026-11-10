@@ -1,0 +1,8 @@
+# torch comes from the CPU-only wheel index (see Dockerfile)
+torch==2.15.0+cpu
+sentence-transformers==6.2.0
+transformers==5.22.2
+tiktoken==0.14.0
+fastapi==0.121.0
+uvicorn[standard]==0.34.0
+numpy<3
