@@ -95,3 +95,66 @@ services:
       timeout: 5s
       start_period: 60s
       retries: 3
+
+  # Redis (cache, rate limits, locks) for the Omi backend:
+  # REDIS_DB_HOST=redis, REDIS_DB_PORT=6379, REDIS_DB_PASSWORD= (none).
+  # AOF + RDB persistence in state/redis/ (create it first, owned by uid 1000).
+  redis:
+    image: redis:7.4.12-alpine
+    restart: unless-stopped
+    user: "1000:1000"
+    command: ["redis-server", "--appendonly", "yes", "--dir", "/data", "--save", "60 1", "--protected-mode", "no"]
+    stop_grace_period: 30s
+    ports:
+      - "127.0.0.1:8107:6379"
+    volumes:
+      - ./state/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  # Typesense (conversation + memory keyword search) for the Omi backend:
+  # TYPESENSE_HOST=typesense, TYPESENSE_HOST_PORT=8108, TYPESENSE_PROTOCOL=http,
+  # TYPESENSE_API_KEY from .env. Pinned to the upstream dev harness version.
+  # Data in state/typesense/ (create it first, owned by uid 1000).
+  typesense:
+    image: typesense/typesense:27.1
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      TYPESENSE_API_KEY: ${TYPESENSE_API_KEY:?set TYPESENSE_API_KEY in .env}
+      TYPESENSE_DATA_DIR: /data
+      TYPESENSE_ENABLE_CORS: "true"
+    stop_grace_period: 30s
+    ports:
+      - "127.0.0.1:8108:8108"
+    volumes:
+      - ./state/typesense:/data
+    healthcheck:
+      # The image has no curl/wget; bash's /dev/tcp is enough for /health.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8108 && printf 'GET /health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '\"ok\":true' <&3"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  # One-shot: creates the `conversations` collection from upstream's schema
+  # file if it doesn't exist yet (upstream never creates it). Idempotent; runs
+  # on every `up`. The backend should depend on it with
+  # condition: service_completed_successfully.
+  typesense-init:
+    image: curlimages/curl:8.17.0
+    restart: "no"
+    depends_on:
+      typesense:
+        condition: service_healthy
+    environment:
+      TYPESENSE_API_KEY: ${TYPESENSE_API_KEY:?set TYPESENSE_API_KEY in .env}
+      TYPESENSE_URL: http://typesense:8108
+    entrypoint: ["sh", "/init.sh"]
+    volumes:
+      - ./services/typesense/init.sh:/init.sh:ro
+      - ./upstream/omi/backend/typesense/conversations.schema:/schemas/conversations.schema:ro
