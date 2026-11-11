@@ -3,7 +3,8 @@
 Streams a 16-bit mono WAV to /v4/listen in real time (100 ms PCM16 frames), then
 keeps sending silence (like a quiet pendant; the backend drops sessions that get
 no audio for 90 s) until the conversation's silence timeout fires and the pusher
-finalizes it. Polls GET /v1/conversations/{id} until it leaves in_progress.
+finalizes it. Polls GET /v1/conversations/{id} until it leaves in_progress, then
+/v1/conversations/{id}/finalization until the job is terminal.
 
 Runs inside the pusher container (it has python + websockets and is on the
 compose network); scripts/test_pusher.sh pipes it in. Prints one JSON summary
@@ -100,6 +101,7 @@ async def run(args) -> int:
                     log('STT failed')
 
         receiver = asyncio.create_task(receive())
+        receiver.add_done_callback(lambda t: t.cancelled() or t.exception())
         step = CHUNK_MS / 1000 / args.speed
         for off in range(0, len(pcm) - chunk + 1, chunk):
             await ws.send(pcm[off : off + chunk])
@@ -109,18 +111,26 @@ async def run(args) -> int:
         silence = b'\x00' * chunk
         deadline = time.monotonic() + args.wait
         next_poll = 0.0
-        result = None
+        result = fin = None
+        # Like upstream's release probe: keep the socket open until the durable
+        # finalization job is terminal (memories, embedding, index fan-out), not
+        # just until the conversation reads completed.
         while time.monotonic() < deadline and not receiver.done():
             await ws.send(silence)
             await asyncio.sleep(CHUNK_MS / 1000)
             if time.monotonic() < next_poll or not conv_ids:
                 continue
             next_poll = time.monotonic() + 5
-            status, conv = await asyncio.to_thread(http_json, f'{http}/v1/conversations/{conv_ids[0]}', token)
-            state = conv.get('status') if conv else f'http {status}'
-            log(f'conversation {conv_ids[0]} status={state}')
-            if conv and conv.get('status') not in ('in_progress', 'processing'):
-                result = conv
+            cid = conv_ids[0]
+            if result is None:
+                status, conv = await asyncio.to_thread(http_json, f'{http}/v1/conversations/{cid}', token)
+                log(f'conversation {cid} status={conv.get("status") if conv else f"http {status}"}')
+                if conv and conv.get('status') not in ('in_progress', 'processing'):
+                    result = conv
+                continue
+            _, fin = await asyncio.to_thread(http_json, f'{http}/v1/conversations/{cid}/finalization', token)
+            log(f'finalization {(fin or {}).get("status")} fanout={(fin or {}).get("fanout_status")}')
+            if fin and fin.get('terminal'):
                 break
         await ws.close(code=1000, reason='test_pusher done')
         receiver.cancel()
@@ -129,9 +139,12 @@ async def run(args) -> int:
         print('RESULT ' + json.dumps({'ok': False, 'reason': 'timeout', 'conversations': conv_ids, 'events': events}))
         return 1
     structured = result.get('structured') or {}
-    _, fin = await asyncio.to_thread(http_json, f'{http}/v1/conversations/{result["id"]}/finalization', token)
+    fin = fin or {}
     summary = {
-        'ok': result.get('status') == 'completed' and bool(structured.get('title')) and not result.get('discarded'),
+        'ok': result.get('status') == 'completed'
+        and bool(structured.get('title'))
+        and not result.get('discarded')
+        and fin.get('terminal_outcome') == 'success',
         'id': result['id'],
         'status': result.get('status'),
         'discarded': result.get('discarded'),
@@ -140,7 +153,7 @@ async def run(args) -> int:
         'category': structured.get('category'),
         'action_items': len(structured.get('action_items') or []),
         'transcript': ' '.join(s.get('text', '') for s in result.get('transcript_segments') or []),
-        'finalization': {k: (fin or {}).get(k) for k in ('status', 'terminal', 'terminal_outcome', 'fanout_status')},
+        'finalization': {k: fin.get(k) for k in ('status', 'terminal', 'terminal_outcome', 'fanout_status')},
         'live_segments': len(texts),
     }
     print('RESULT ' + json.dumps(summary, ensure_ascii=False))
@@ -157,7 +170,11 @@ def main() -> None:
     p.add_argument('--conversation-timeout', type=int, default=120, help='seconds of silence (min 120)')
     p.add_argument('--wait', type=int, default=600, help='max seconds to wait after the audio')
     p.add_argument('--speed', type=float, default=1.0, help='1 = real time like a pendant')
-    sys.exit(asyncio.run(run(p.parse_args())))
+    try:
+        sys.exit(asyncio.run(run(p.parse_args())))
+    except websockets.ConnectionClosed as e:
+        print('RESULT ' + json.dumps({'ok': False, 'reason': f'socket closed: {e}'}))
+        sys.exit(1)
 
 
 if __name__ == '__main__':
