@@ -187,6 +187,7 @@ services:
       llm-proxy: {condition: service_started}
       redis: {condition: service_started}
       typesense-init: {condition: service_completed_successfully}
+      pusher: {condition: service_started}
     environment: &omi-backend-env
       OMI_ENV_STAGE: ${OMI_ENV_STAGE:-local}
       PROVIDER_MODE: ${OMI_PROVIDER_MODE:-real}
@@ -275,7 +276,9 @@ services:
       SCREEN_FRAME_SIGNING_SECRET: ${SCREEN_FRAME_SIGNING_SECRET:?set SCREEN_FRAME_SIGNING_SECRET in .env}
       BASE_API_URL: http://backend:8080
       API_BASE_URL: http://backend:8080
-      HOSTED_PUSHER_API_URL: ${HOSTED_PUSHER_API_URL:-}
+      # Live /v4/listen conversations are finalized by the pusher service;
+      # empty = they stay in_progress forever.
+      HOSTED_PUSHER_API_URL: ${HOSTED_PUSHER_API_URL:-http://pusher:8080}
       # Pinecone stays off (no PINECONE_API_KEY); optional providers stay unset.
     ports:
       - "127.0.0.1:${BACKEND_PORT:-8109}:8080"
@@ -318,6 +321,46 @@ services:
       interval: 30s
       timeout: 5s
       start_period: 60s
+      retries: 3
+
+  # Upstream pusher (backend/pusher/): the backend's /v4/listen sessions hand
+  # finished conversations to it over a websocket (HOSTED_PUSHER_API_URL), and
+  # it runs the whole finalizer (LLM summary, memories, embedding, Typesense,
+  # webhooks) in-process. Without it, live conversations stay in_progress.
+  # Same codebase and env as the backend (MEMORY_ENABLED=on is required at startup).
+  pusher:
+    build:
+      context: ./upstream/omi
+      dockerfile: backend/pusher/Dockerfile
+      args:
+        # Upstream's default base (gcr.io/based-hardware-dev/...) is private.
+        PYTHON_BASE_IMAGE: python:3.11-slim-trixie
+    image: omi-local-pusher:latest
+    restart: unless-stopped
+    user: "1000:1000"
+    init: true
+    # Lets in-flight finalizations drain (uvicorn --timeout-graceful-shutdown 90).
+    stop_grace_period: 100s
+    depends_on:
+      llm-gateway: {condition: service_started}
+      firebase: {condition: service_started}
+      llm-proxy: {condition: service_started}
+      redis: {condition: service_started}
+      typesense-init: {condition: service_completed_successfully}
+    environment:
+      <<: *omi-backend-env
+      # The pusher is the target, not a client (upstream strips it from the pusher).
+      HOSTED_PUSHER_API_URL: ""
+    ports:
+      - "127.0.0.1:${PUSHER_PORT:-8111}:8080"
+    volumes:
+      - ./state/storage:/state/storage
+    tmpfs: *omi-backend-scratch
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/ready"]
+      interval: 30s
+      timeout: 5s
+      start_period: 120s
       retries: 3
 
   # One-shot: seed the upstream harness's synthetic local users (alice, bob,
