@@ -1,0 +1,463 @@
+[00:00 - 00:07] You: All right, can everyone hear me? I think we're still waiting on a couple of people but we can... uh, we can just hang out for a second.
+
+[00:07 - 00:15] Priya: Loud and clear.
+
+[00:15 - 00:22] Lena: Hi! I'm here.
+
+[00:22 - 00:30] You: Hey Lena. Tom? You in?
+
+[00:30 - 00:37] Tom: Yeah, sorry, just... uh, my mic was acting up. Give me a sec.
+
+[00:37 - 00:45] Priya: How was everyone's weekend? Did you do anything fun?
+
+[00:45 - 00:52] You: Pretty quiet. Just caught up on some reading. Lena?
+
+[00:52 - 01:00] Lena: Oh, it was... how do you say... very stressful. My daughter has this fever, just a total Chaos. We were up all night.
+
+[01:00 - 01:07] Priya: Oh no! Is she okay now?
+
+[01:07 - 01:15] Lena: Yeah, she's sleeping now, hoffentlich... hopefully she stays asleep for the next hour.
+
+[01:15 - 01:22] Tom: I'm here. Sorry guys. I had to restart the whole laptop. Some weird update loop.
+
+[01:22 - 01:30] You: No worries, Tom. We were just... uh, Lena was telling us about her kid being sick.
+
+[01:30 - 01:37] Tom: Oh man, sorry to hear that Lena. Kids, right?
+
+[01:37 - 01:45] Lena: Ja, it is just... exhausting. But we are okay now.
+
+[01:45 - 01:52] You: All right, I think we're mostly here. Let's... uh, let's get into it. I want to keep this tight because I know everyone's slammed.
+
+[01:52 - 02:00] Priya: Wait, is Sarah joining? I thought she was on the marketing side of this.
+
+[02:00 - 02:07] You: She's... uh, she's actually OOO today. I'll just catch her up via Slack.
+
+[02:07 - 02:15] Priya: Okay, cool.
+
+[02:15 - 02:22] You: So, the big thing on the agenda today is the Harbor mobile app v2.3. We're looking at the launch window and... uh, well, the current state of the build.
+
+[02:22 - 02:30] Tom: Wait, did you say 2.3? I thought we were still talking about the 2.2 patch for the... the legacy API?
+
+[02:30 - 02:37] You: No, 2.2 is out the door. This is the big one. The Harbor v2.3 release.
+
+[02:37 - 02:45] Tom: Oh, right. Right. The one with the new dashboard.
+
+[02:45 - 02:52] Lena: I have some concerns about the... uh... the stability of the dashboard on older devices. I did some testing yesterday and it's very... unstable.
+
+[02:52 - 03:00] You: Unstable how? Like, crashes?
+
+[03:00 - 03:07] Lena: Not always crashing, but the UI is... jumping. It's very *nervös*. Like, it flickers when you scroll.
+
+[03:07 - 03:15] Priya: Is that a blocker for the marketing screenshots? Because I'm starting the social assets tomorrow and I need a clean version of the UI.
+
+[03:15 - 03:22] Tom: It's probably just a rendering issue with the new fragments. I can... uh, I can probably fix that by Friday if I can get the logs.
+
+[03:22 - 03:30] Lena: I have the logs. I can send them to you, Tom.
+
+[03:30 - 03:37] Tom: Perfect. Just drop them in the Jira ticket.
+
+[03:37 - 03:45] You: Okay, so let's pause on the flicker for a second. The main goal here is to nail down the launch date. We were aiming for the 15th, but looking at the... uh, the current velocity, is that even realistic?
+
+[03:45 - 03:52] Priya: From a marketing perspective, we really need it by the 15th because the email campaign is already scheduled. If we push it to the 20th, we lose the... the momentum from the announcement.
+
+[03:52 - 04:00] You: Right, but I can't ship a buggy app just to hit a date. Tom, realistically, can you get the Android build stable by next Tuesday?
+
+[04:00 - 04:07] Tom: Tuesday? Uh... let me think. If I don't have any more of those... those weird update loops with my hardware, then yeah. But I'm still seeing some weirdness with the... the Harbor login flow on Android 12.
+
+[04:07 - 04:15] Lena: Ja, I saw that too. It's almost... unusable on some Samsung devices.
+
+[04:15 - 04:22] You: Wait, unusable? Like, it doesn't log in?
+
+[04:22 - 04:30] Lena: It's slow. Very slow. And then it just... disappears.
+
+[04:30 - 04:37] Priya: Wait, if it's unusable on Samsung, that's like... what, a huge chunk of our user base?
+
+[04:37 - 04:45] You: Exactly. Okay, so we've got a flicker and a login issue. Tom, do we have a handle on the login bug yet?
+
+[04:45 - 04:52] Tom: I'm... uh, I'm looking into it. I think it's a race condition with the auth token.
+
+[04:52 - 05:00] You: Right. Okay. Let's... let's dig into the timeline.
+
+[05:00 - 05:10] You: Okay, so looking at the timeline, we've got the login issue and the flicker, but Lena, you mentioned something earlier in the Slack channel about a crash?
+
+[05:10 - 05:20] Lena: Ja, exactly. The Bluetooth reconnect. It is a... how do you say... totalabsturz. A total crash.
+
+[05:20 - 05:30] Tom: Wait, what crash? I haven't seen any new crash logs in Sentry for Bluetooth.
+
+[05:30 - 05:40] Lena: No, it is not in Sentry because the app just... poof. It dies. It's specifically on Android 14.
+
+[05:40 - 05:50] You: Android 14? Wait, I thought we were only targeting 13 for the initial rollout?
+
+[05:50 - 06:00] Priya: We can't ignore 14, right? I mean, everyone has updated their Pixels by now. If the first experience is a crash, the reviews will be... just terrible.
+
+[06:00 - 06:10] Lena: It happens when you... uh, you disconnect the headset and then try to reconnect immediately. Boom.
+
+[06:10 - 06:20] Tom: Immediately? Like, within a second?
+
+[06:20 - 06:30] Lena: Ja, within two or three seconds. I tried it on the Pixel 7 and the 8. Same thing. It is... sehr ärgerlich. Very annoying.
+
+[06:30 - 06:40] You: Okay, this is getting a bit messy. We have the login flow, the flicker, and now a hard crash on the latest OS. Tom, can you reproduce this?
+
+[06:40 - 06:50] Tom: I... uh, I don't actually have the Pixel 8 on my desk right now. I think it's in the... the device lab?
+
+[06:50 - 07:00] You: Right. Okay. So we have a crash on Android 14. Who owns the fix for this? Tom, is this on you or is it something in the SDK?
+
+[07:00 - 07:10] Tom: Probably me. It's likely the... uh, the way we're handling the Bluetooth GATT profile on the new API level. But I need to actually... you know, see it happen.
+
+[07:10 - 07:20] Lena: I can send you the logs. I have the... uh, the logcat output from the lab device.
+
+[07:20 - 07:30] Tom: Yeah, please do. Just... just shoot them over.
+
+[07:30 - 07:40] You: Okay, let's talk about the deadline. We can't ship with a crash. Priya, if we have to push the 15th, where does that leave the marketing?
+
+[07:40 - 07:50] Priya: I mean, I can shift the email by a couple of days, but if we move it to the 20th, we're hitting a weekend. That's a disaster for support.
+
+[07:50 - 08:00] You: Right. Okay. So, let's aim for a hard deadline for the fix. Tom, can we get this crash sorted by next Thursday?
+
+[08:00 - 08:10] Tom: Next Thursday? Uh... let me check. I mean, if the logs show it's just the GATT profile, it's a quick fix. But if it's... if it's a memory leak in the driver...
+
+[08:10 - 08:20] You: I don't want to hear "if" right now. I need a commitment. Can we have a stable build for QA by Thursday morning?
+
+[08:20 - 08:30] Tom: I... uh... yeah. I can commit to having a fix in by Thursday. But I'll need Lena to verify it immediately.
+
+[08:30 - 08:40] Lena: I can do that. But... please, Tom, check the... the null pointer in the callback. I think that is where it is.
+
+[08:40 - 08:50] Tom: Right, right. The callback. Got it.
+
+[08:50 - 09:00] Priya: Wait, so just to be clear, the 15th is still the goal? Or are we saying Thursday is the new... uh, the new milestone?
+
+[09:00 - 09:10] You: Thursday is the milestone for the fix. If the fix works, we still try to hit the 15th. If the fix fails, we move the launch.
+
+[09:10 - 09:20] Priya: Okay, so I'll hold the email campaign in a "pending" state for now. But please, let me know the second... the second you know.
+
+[09:20 - 09:30] You: I will. Tom, once you get Lena's logs, I want a quick update in the channel. Don't wait until Thursday to tell me it's a bigger problem.
+
+[09:30 - 09:40] Tom: Yeah, no problem. I'll... I'll ping you as soon as I've reproduced it.
+
+[09:40 - 09:50] Lena: I will send the logs now. They are... uh, quite long.
+
+[09:50 - 10:00] You: Perfect. Okay, so we have the Android 14 crash assigned to Tom, deadline next Thursday for the fix, and we're still hoping for the 15th launch. Anything else on the QA side, Lena?
+
+[10:00 - 10:07] Lena: No, I think... wait. Just a small thing. We need to check the localized strings again. Some of them are... how you say... *kaputt*. Just broken.
+
+[10:07 - 10:15] You: Broken? Like, formatting issues or actually missing text?
+
+[10:15 - 10:23] Lena: A few missing. Just... *kleinigkeiten*. Small things. I'll make a list.
+
+[10:23 - 10:31] You: Okay, just put it in the Jira. Alright, let's pivot. Priya, let's talk marketing. Where are we with the beta outreach?
+
+[10:31 - 10:39] Priya: Right, so, uh, I've been thinking about the funnel. I think we should do a dedicated beta newsletter first, like a "sneak peek" thing, before we go full blast.
+
+[10:39 - 10:47] You: A newsletter? I thought we were just doing the landing page and the ad spend?
+
+[10:47 - 10:55] Priya: Yeah, but if we... if we blast a landing page to a cold audience without warming them up, the conversion will be, like, trash. I want to send a teaser email to the existing waitlist first.
+
+[10:55 - 11:03] You: Okay, makes sense. What's the timeline for that?
+
+[11:03 - 11:11] Priya: I can have the... uh, the sequence ready if I can get the final feature list. But I'm thinking the newsletter goes out Tuesday, and then the landing page goes live Wednesday?
+
+[11:11 - 11:18] You: Wait, Wednesday? That's too close to the 15th. I want the landing page up by Monday so we can track the bounce rate.
+
+[11:18 - 11:26] Priya: Monday? I... I don't have the copy finished yet. I'm still waiting on the... the a-b testing for the headline.
+
+[11:26 - 11:34] You: Priya, we don't have time for a-b testing the headlines. Just pick the strongest one. What's the budget looking like for the paid push?
+
+[11:34 - 11:42] Priya: Um, I'm projecting... uh, four thousand euros. Four thousand for the initial two-week burst.
+
+[11:42 - 11:50] You: Four thousand? That's a bit high for a beta.
+
+[11:50 - 11:58] Priya: It's... it's for the targeted LinkedIn ads and a bit of Meta. If we want a decent sample size for the beta, we need the reach. Otherwise, we're just... you know, shouting into a void.
+
+[11:58 - 12:06] You: Fine. Four thousand is approved, but I want a weekly report on the CPA. I don't want us burning that cash if the landing page isn't converting.
+
+[12:06 - 12:14] Priya: Totally. I'll set up the dashboard.
+
+[12:14 - 12:22] Lena: Sorry, just... quickly. For the landing page, do we have the screenshots of the new UI? Because the current ones are... *veraltet*. Outdated.
+
+[12:22 - 12:30] Priya: Oh! No, I'm using the mocks from Figma.
+
+[12:30 - 12:37] Lena: The Figma mocks are not the final build, Priya. There is a difference. The buttons are... different.
+
+[12:37 - 12:45] Priya: Wait, really? Which ones?
+
+[12:45 - 12:53] Lena: The primary action button on the home screen. It's blue now, not green.
+
+[12:53 - 13:01] Priya: (Sighs) Great. Okay. I'll check the Figma file again. I'll... I'll make sure the landing page matches the actual build.
+
+[13:01 - 13:09] You: This is why we're having this meeting. Priya, can you get a draft of the newsletter copy and the landing page wireframe to me by Monday?
+
+[13:09 - 13:17] Priya: Monday morning? Or... like, end of day?
+
+[13:17 - 13:25] You: Monday morning. I want to review it before my 10:00 AM.
+
+[13:25 - 13:33] Priya: Uh... yeah. I can do that. I'll just... I'll spend the weekend polishing the copy.
+
+[13:33 - 13:41] You: Don't spend your whole weekend on it, just get it to a "good enough" state. We'll refine it together.
+
+[13:41 - 13:48] Tom: Sorry, I just... did we say four thousand euros?
+
+[13:48 - 13:56] You: Yes, Tom. Why?
+
+[13:56 - 14:04] Tom: Just wondering if there's any budget for... you know, the API credits? Because the beta testers are going to hit the server hard.
+
+[14:04 - 14:12] You: That comes out of the infrastructure budget, not marketing. Stop worrying about the money and start worrying about that null pointer.
+
+[14:12 - 14:20] Tom: Right. Right. Sorry.
+
+[14:20 - 14:28] You: Okay, so to recap: Priya is drafting the newsletter and landing page copy by Monday morning. Budget is four thousand euros for ads. Lena is checking the localized strings and verifying the build on Thursday. Tom is fixing the crash. Anything I missed?
+
+[14:28 - 14:36] Priya: No, I think... wait, the email list. I need the export from the database.
+
+[14:36 - 14:44] You: Tom, can you handle that export for Priya?
+
+[14:44 - 14:52] Tom: Yeah, I can. I'll... I'll do it after I finish the log analysis.
+
+[14:52 - 15:00] You: Perfect. Let's wrap this up. I've got another call in five.
+
+[15:00 - 15:07] Tom: Wait, before we jump off... did anyone see the photos I posted from Lisbon?
+
+[15:07 - 15:14] You: Not now, Tom. I'm literally on a countdown to my next meeting.
+
+[15:14 - 15:21] Tom: It's just... like, the food was insane. I found this place in Alfama, like, tucked in a side street.
+
+[15:21 - 15:29] Priya: Oh, I've been there! Was it that place with the yellow tiles on the wall?
+
+[15:29 - 15:36] Tom: Yeah! Exactly! *A Tabuleta*, I think. Or something like that. The bacalhau was... oh man.
+
+[15:36 - 15:43] Lena: Wait, was it near the cathedral? *Die Kathedrale?* I went there three years ago and got totally lost.
+
+[15:43 - 15:51] Tom: Yeah, like two blocks away. You have to walk up these crazy steep hills. My calves were killing me.
+
+[15:51 - 15:58] Priya: I'm so jealous. I need a vacation. Like, a real one. Not a "working from a hotel" vacation.
+
+[15:58 - 16:05] You: Guys. Seriously. My calendar is literally blinking red.
+
+[16:05 - 16:13] Lena: Sorry, sorry. *Entschuldigung*. Just... just one more thing about the pricing.
+
+[16:13 - 16:20] You: See? We're back to business. Thank you, Lena. What's up?
+
+[16:20 - 16:27] Lena: I was looking at the "Pro" tier. The wording in the German translation is... *grässlich*. It's horrible.
+
+[16:27 - 16:35] You: Horrible how?
+
+[16:35 - 16:42] Lena: It sounds like... like we are selling a vacuum cleaner, not software. It's too formal. Like, very *steif*. Stiff.
+
+[16:42 - 16:49] Priya: Can we just... like, soften the tone? I can help with the English version and then Lena can... you know, "German-ize" it?
+
+[16:49 - 16:57] Lena: Yes, please. Because right now it says something like "Our Distinguished Offering for Professional Users." Nobody talks like that.
+
+[16:57 - 17:04] You: Right. Priya, can you add the localized copy review to your Monday list?
+
+[17:04 - 17:11] Priya: Uh, Monday? I thought I was just doing the newsletter. Now I'm doing the landing page and the German Pro tier?
+
+[17:11 - 17:19] You: Just the English base. Lena will handle the actual translation, you just provide the "vibe" or whatever.
+
+[17:19 - 17:26] Priya: Fine. Fine. But I'm not working Sunday.
+
+[17:26 - 17:33] Tom: Wait, if we're changing the pricing tiers, do we need to update the Stripe API calls?
+
+[17:33 - 17:40] You: Why? Are the tiers changing or just the words?
+
+[17:40 - 17:48] Tom: Just asking. Because if the price point changes, the metadata in the... uh, the payload needs to be updated.
+
+[17:48 - 17:55] You: The price isn't changing. Four thousand is the budget for the *ads*. The tier is... what is the tier?
+
+[17:55 - 18:02] Lena: It is forty-nine euros a month.
+
+[18:02 - 18:10] You: Right. Forty-nine euros. That stays. Only the wording changes. Tom, you don't need to touch the API for a wording change.
+
+[18:10 - 18:17] Tom: Right. Yeah. Obviously. I just... I wanted to be sure.
+
+[18:17 - 18:24] Priya: Wait, I just realized. If we change the "Pro" name to something else, like "Elite" or "Power," does that affect the SEO?
+
+[18:24 - 18:32] You: Let's not overthink this. It's a beta. Nobody is searching for "Elite Tier Software" on Google yet.
+
+[18:32 - 18:39] Lena: I agree. *Genau*. Let's just make it sound human.
+
+[18:39 - 18:46] You: Okay, so: Priya does English copy for Pro tier, Lena translates it so it doesn't sound like a vacuum cleaner.
+
+[18:46 - 18:54] Priya: Got it.
+
+[18:54 - 19:01] You: And Tom, please, for the love of god, stop talking about fish and start looking at those logs.
+
+[19:01 - 19:08] Tom: Hey! The fish was a very important cultural experience.
+
+[19:08 - 19:16] You: I'm leaving the call. I have to go.
+
+[19:16 - 19:23] Lena: Wait, did we decide on the... the date for the build? Thursday, right?
+
+[19:23 - 19:30] You: Thursday. 10:00 AM. I'm gone. Bye everyone.
+
+[19:30 - 19:38] Priya: Bye!
+
+[19:38 - 19:45] Lena: Bye. Tom, send me the link to that restaurant.
+
+[19:45 - 19:52] Tom: I'll DM it to you. It's called *Tabuleta*. Or maybe *Tabuleta*. I'll check the map.
+
+[19:52 - 20:00] Lena: Okay. See you later.
+
+[20:00 - 20:07] You: Wait, I'm back. Sorry, I forgot I had to check the support inbox before we officially wrap.
+
+[20:07 - 20:14] Tom: Oh, I thought you left.
+
+[20:14 - 20:21] You: I did, but I saw a notification. Look, we've got a lot of noise in the support queue this morning. People are complaining about the login loop again.
+
+[20:21 - 20:29] Lena: *Ach*, again? I thought we fixed that in the last sprint?
+
+[20:29 - 20:36] You: Apparently not. There's a thread from a user in Brazil saying it happens every time they switch from Wi-Fi to 5G.
+
+[20:36 - 20:43] Tom: That... that sounds like a session timeout issue. I can check the... uh... the token refresh logic?
+
+[20:43 - 20:51] You: Please do. Because it's making us look like amateurs. Also, check the feedback on the new dashboard.
+
+[20:51 - 20:58] Priya: Wait, did you see the message from the guys at Global Logix?
+
+[20:58 - 21:05] You: Global Logix? No, who?
+
+[21:05 - 21:13] Priya: The enterprise lead. They've been emailing me for three days. They're basically begging for a custom quote for five hundred seats.
+
+[21:13 - 21:20] You: Five hundred? Are you kidding? That's... that's massive for a beta. Where did they come from?
+
+[21:20 - 21:27] Priya: I think it was that LinkedIn post from last week. The one about the automation workflow. They're very interested in the... uh... the API integration.
+
+[21:27 - 21:35] Lena: If they have five hundred people, the current build will... *kaputt*. It will crash.
+
+[21:35 - 21:42] Tom: Lena's right. We can't just throw five hundred people onto the current instance. We'd need to scale the pods.
+
+[21:42 - 21:49] You: Let's not panic. We'll handle the scaling if the deal closes. Priya, did you reply to them?
+
+[21:49 - 21:57] Priya: I told them I'm coordinating with the product lead. Which is you.
+
+[21:57 - 22:04] You: Right. Fair. Also, there's another one. A lead from that fintech firm in Singapore. "Nexus Wealth," I think?
+
+[22:04 - 22:11] Priya: Oh, yeah! I saw that. They're asking about the SOC2 compliance.
+
+[22:11 - 22:19] You: *Sigh*. I knew that was coming. Tom, where are we on the compliance documentation?
+
+[22:19 - 22:26] Tom: Documentation? I thought we were just... like... filling out a spreadsheet for the auditors?
+
+[22:26 - 22:33] You: It's not just a spreadsheet, Tom. It's a whole thing. Anyway, we can't lose the Singapore lead because of a PDF.
+
+[22:33 - 22:40] Lena: *Genau*. We should tell them it's "in progress." That usually works for at least two weeks.
+
+[22:40 - 22:48] You: Exactly. "In progress." Now, the most important thing. I've got a demo call booked.
+
+[22:48 - 22:55] Priya: With who?
+
+[22:55 - 23:02] You: It's the VP of Ops at that logistics company. The ones who wanted the custom reporting.
+
+[23:02 - 23:10] Lena: When is it?
+
+[23:10 - 23:17] You: The 14th. At 3:00 PM. My time.
+
+[23:17 - 23:24] Priya: Wait, the 14th? That's next Tuesday. Is the build going to be stable by then?
+
+[23:24 - 23:32] Tom: Stable is a strong word. It'll be... functional.
+
+[23:32 - 23:39] You: "Functional" is what I'm selling. Tom, I need the reporting module to actually... you know... report things. Not just show a spinning wheel.
+
+[23:39 - 23:46] Tom: I'm working on it! The spinning wheel is... it's a caching issue.
+
+[23:46 - 23:54] Lena: I can help test the reporting. I'll try to break it on Monday morning.
+
+[23:54 - 24:01] You: Perfect. Lena, please try to break everything. Tom, no more fish-talk until the reporting module works.
+
+[24:01 - 24:08] Tom: I'm not even talking about fish right now!
+
+[24:08 - 24:16] Priya: So, to recap: I'll handle the Global Logix and Nexus leads, and we have the demo on the 14th at 3:00.
+
+[24:16 - 24:23] You: Yes. And for the love of all that is holy, please check the support inbox for the login loop bugs.
+
+[24:23 - 24:30] Lena: I'll check the logs. *Alles klar*.
+
+[24:30 - 24:38] You: Okay. Now I am actually leaving. Don't ping me unless the server is literally on fire.
+
+[24:38 - 24:45] Priya: Bye!
+
+[24:45 - 24:52] Tom: See ya.
+
+[24:52 - 25:00] Lena: Tschüss!
+
+[25:00 - 25:07] You: Wait, wait, wait. I'm sorry. I can't actually leave. I just realized we didn't actually... uh... we didn't settle the GDPR thing.
+
+[25:07 - 25:14] Priya: Oh, god. I thought we did that.
+
+[25:14 - 25:21] You: No, we talked around it. We didn't actually decide. Lena, you had a concern about the data deletion request flow?
+
+[25:21 - 25:28] Lena: Yes. The current flow is... *katastrophal*. If the user deletes their account, the backup logs—they are still there.
+
+[25:28 - 25:35] Tom: Wait, the logs? I thought the script handled the purging of the S3 buckets.
+
+[25:35 - 25:42] Lena: It does for the main bucket, but not the archival one. It's like... *incomplete*.
+
+[25:42 - 25:50] You: Right, okay. Is that a blocker for the 14th?
+
+[25:50 - 25:57] Tom: I mean, strictly speaking? No. The VP of Ops isn't going to be testing the account deletion flow during a demo of the reporting module.
+
+[25:57 - 26:04] Priya: But if the legal team sees it? We're basically asking for a fine.
+
+[26:04 - 26:11] You: Okay, let's just... let's park the GDPR deep dive for a second because I really need to get off this call. Tom, can you just... look into the archival bucket?
+
+[26:11 - 26:18] Tom: I can. But it's gonna take a few hours of digging through the old Jenkins scripts.
+
+[26:18 - 26:25] Lena: I can provide the specific log IDs that are still lingering. I have a list.
+
+[26:25 - 26:32] You: Great. Just... put it in the Jira ticket. Ticket 402, right?
+
+[26:32 - 26:40] Tom: No, 402 was the login loop. This is... uh... 415?
+
+[26:40 - 26:47] Lena: 415. Yes. I will put it there. *Genau*.
+
+[26:47 - 26:54] You: Okay. So, let's just quickly do a round of "who is doing what" so I don't forget. I'll start. I'm doing the demo on the 14th, and I'm chasing the VP for the final requirements on the custom reports.
+
+[26:54 - 27:01] Priya: I've got the lead follow-ups. Global Logix and Nexus. And I'm drafting the announcement email for the beta.
+
+[27:01 - 27:08] You: Right. Tom?
+
+[27:08 - 27:15] Tom: I'm fixing the caching issue on the reporting module so it stops spinning. And I'm checking the S3 archival logs for the GDPR stuff.
+
+[27:15 - 27:22] You: And Lena?
+
+[27:22 - 27:30] Lena: I am checking the support inbox for the login loops. And on Monday morning, I am... how you say... breaking the reporting module.
+
+[27:30 - 27:37] You: Perfect. "Breaking" is the key word there.
+
+[27:37 - 27:44] Priya: Are we still on for the sync on Friday?
+
+[27:44 - 27:51] You: Friday? No, I've got a dentist appointment. Can we move it to Monday morning?
+
+[27:51 - 27:58] Tom: Monday is tight. I'll be in the middle of the final push for the build.
+
+[27:58 - 28:05] Lena: I can do Monday at 10:00.
+
+[28:05 - 28:12] Priya: I can do 10:00 too.
+
+[28:12 - 28:20] You: 10:00 AM Monday. I'll move the invite now. Actually, wait, I'm not seeing my calendar. My internet is... lagging.
+
+[28:20 - 28:27] Tom: Just do it later. It's fine.
+
+[28:27 - 28:34] You: Right. Okay. One last thing. The GDPR thing—Tom, if you find out it's a massive architectural problem, tell me immediately. Don't wait until Monday.
+
+[28:34 - 28:41] Tom: Yeah, yeah. If the house is on fire, I'll scream.
+
+[28:41 - 28:48] Lena: Wait, did we decide on the versioning for the demo? Are we using the staging branch or the hotfix?
+
+[28:48 - 28:55] You: Staging. Definitely staging. We can't risk the hotfix being... you know... unstable.
+
+[28:55 - 29:02] Tom: Staging it is. I'll merge the reporting fixes into staging by Friday EOD.
+
+[29:02 - 29:10] Priya: Should I send the pre-demo materials to the VP now? Or wait until the build is confirmed?
+
+[29:10 - 29:17] You: Wait until Monday. I don't want to send a PDF promising features that Tom hasn't... uh... "functionalized" yet.
+
+[29:17 - 29:24] Tom: Hey!
+
+[29:24 - 29:31] You: Shut up, Tom. Okay, *now* I am actually leaving. For real this time.
+
+[29:31 - 29:38] Priya: Bye everyone!
+
+[29:38 - 29:45] Lena: Bye! *Tschüss!*
+
+[29:45 - 29:52] Tom: Later.
+
+[29:52 - 30:00] You: (muffled) Wait, is my mic still on? Oh. Okay. Bye.
