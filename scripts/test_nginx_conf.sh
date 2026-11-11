@@ -9,7 +9,7 @@
 #   --live: also starts a throwaway nginx on the omi_default network (upstreams
 #      backend:8080 and firebase:8104) and walks the app's flow through it:
 #      local-dev custom token → Auth emulator sign-in + token refresh →
-#      authenticated REST call → /v4/listen websocket upgrade, plus the
+#      authenticated REST (GET /v1/users/onboarding) → /v4/listen websocket upgrade, plus the
 #      /emulator/ block and the IP allowlist. Needs backend + firebase running.
 #      Creates (and deletes) the emulator user "smoke-mobile-access".
 set -euo pipefail
@@ -88,9 +88,12 @@ idtok2=$(curl -fsS "${H[@]}" "$BASE/securetoken.googleapis.com/v1/token?key=fake
   -d "grant_type=refresh_token&refresh_token=$refresh" | field '["id_token"]') || fail "token refresh via nginx"
 [ -n "$idtok2" ] && echo "token refresh: ok"
 
-code=$(curl -s -o "$TMP/profile.json" -w '%{http_code}' "${H[@]}" -H "Authorization: Bearer $idtok" "$BASE/v1/users/profile")
-[ "$code" = 200 ] || fail "GET /v1/users/profile → $code $(head -c 200 "$TMP/profile.json")"
-echo "authenticated REST (GET /v1/users/profile): 200"
+# /v1/users/onboarding works for a fresh user (the profile only exists after onboarding).
+code=$(curl -s -o /dev/null -w '%{http_code}' "${H[@]}" "$BASE/v1/users/onboarding")
+[ "$code" = 401 ] || fail "GET /v1/users/onboarding without a token should be 401, got $code"
+code=$(curl -s -o "$TMP/onb.json" -w '%{http_code}' "${H[@]}" -H "Authorization: Bearer $idtok" "$BASE/v1/users/onboarding")
+[ "$code" = 200 ] || fail "GET /v1/users/onboarding → $code $(head -c 200 "$TMP/onb.json")"
+echo "authenticated REST (GET /v1/users/onboarding): 401 without token, 200 with"
 
 status=$(curl -s -i -N --http1.1 --max-time 5 "${H[@]}" \
   -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
