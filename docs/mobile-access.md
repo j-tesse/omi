@@ -112,14 +112,18 @@ unencrypted. So:
 - `firebase`: `172.17.0.1:8104:8104` is in `docker-compose.yml`. Apply it with
   `docker compose up -d firebase`. Recreating it is a clean stop, so the
   emulator data is exported first.
-- `backend`: needs `172.17.0.1:8109:8080` next to its `127.0.0.1` port, and
-  `OMI_LOCAL_STORAGE_BASE_URL` (phone-facing, from `.env`) wired into its
-  environment. See the backend service in `docker-compose.yml`.
-- `backend`: set `STT_PRERECORDED_MODEL=parakeet` too. Otherwise pre-recorded
-  transcription, which includes the pendant's **offline sync** uploads, goes to
-  the cloud provider Modulate and fails without a key. We saw
-  `provider=modulate model=velma-2 ... ConnectError` in the backend log on
-  2026-11-11.
+- `backend`: also published on `172.17.0.1:8109` (in `docker-compose.yml`).
+  Batch and offline-sync STT are already pinned to Parakeet
+  (`STT_PRERECORDED_MODEL=parakeet`).
+- `OMI_LOCAL_STORAGE_BASE_URL` **stays** at its in-stack default
+  `http://backend:8080/_local/storage`. The backend downloads its own storage
+  links for batch STT. Through the vhost, those requests would arrive
+  masqueraded as `172.18.0.1` (the webserver bridge gateway, which is also
+  cloudflared's source), and the allowlist rejects that address on purpose.
+  The downside: storage links handed to the app (e.g. playing back a
+  recording) don't resolve on the phone. Fixing that would take a
+  storage-only exception in nginx, or split-horizon DNS with a hostname the
+  app accepts (`*.ts.net`).
 
 ### 2. Install the nginx vhost **[you]**
 
@@ -127,7 +131,7 @@ unencrypted. So:
 
 ```bash
 cd ~/src/omi
-# OMI_PUBLIC_HOST / OMI_ALLOWED_CIDRS / OMI_LOCAL_STORAGE_BASE_URL in .env (see .env.example)
+# OMI_PUBLIC_HOST / OMI_ALLOWED_CIDRS in .env (see .env.example)
 scripts/test_nginx_conf.sh            # nginx -t: vhost alone + merged into a temp copy of the webserver config
 scripts/render_nginx_conf.sh -o ~/src/webserver/nginx/conf.d/omi.conf
 docker exec webserver_nginx nginx -t && docker exec webserver_nginx nginx -s reload
@@ -202,6 +206,8 @@ our vhost.) This path hasn't been tested here.
 
 ## Known limits
 
+- Stored-file links (`/_local/storage`, e.g. recording playback) point at
+  `backend:8080` and don't open on the phone (see Setup 1).
 - **Push notifications don't work.** FCM needs a real Firebase project.
   Anything that relies on pushes (e.g. "conversation ready") won't arrive, so
   open the app to see it.
