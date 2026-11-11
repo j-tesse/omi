@@ -12,7 +12,8 @@ the grammar only allows "," + the next key or the closing bracket.
 
 Scope: the subset OpenAI strict mode allows (and openai/langchain's pydantic
 conversion produces): object (properties, all required, additionalProperties
-false), array (items, minItems/maxItems), string (minLength/maxLength, format
+false), array (items, minItems/maxItems; unbounded arrays are capped at
+LLM_COMPACT_JSON_MAX_ITEMS), string (minLength/maxLength, format
 date-time/date/time), number / integer (a [0, 1] range, or minimum >= 0),
 boolean, null, enum, const, anyOf / oneOf, $ref into $defs / definitions,
 single-element allOf. Other value constraints (pattern, other numeric ranges)
@@ -24,7 +25,13 @@ through unchanged.
 from __future__ import annotations
 
 import json
+import os
 import re
+
+
+# Arrays without maxItems get this cap: Gemma can otherwise keep appending items
+# (seen with ScreenFrameJudgement.labels) until max_tokens. 0 = no cap.
+DEFAULT_MAX_ITEMS = int(os.getenv("LLM_COMPACT_JSON_MAX_ITEMS", "100") or 0)
 
 
 class Unsupported(ValueError):
@@ -145,6 +152,8 @@ class _Compiler:
         if t == "array":
             item = self.rule(self.compile(s.get("items", True), hint + "_item"), hint + "_item")
             lo, hi = s.get("minItems", 0), s.get("maxItems")
+            if hi is None and DEFAULT_MAX_ITEMS:
+                hi = max(DEFAULT_MAX_ITEMS, lo)
             if hi == 0:
                 return '"[]"'
             more = f'("," {item}){{{max(lo - 1, 0)},{"" if hi is None else hi - 1}}}'

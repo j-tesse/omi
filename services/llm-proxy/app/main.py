@@ -10,7 +10,7 @@ relayed byte for byte.
 Explicit request rewrites on /v1/chat/completions (all logged at DEBUG, each
 switchable off; see AGENTS.md "LLM alias proxy"):
   * reasoning_effort values Gemma's chat template doesn't know are mapped per
-    LLM_REASONING_EFFORT_MAP (default minimal=none, low=none, xhigh=high, max=high).
+    LLM_REASONING_EFFORT_MAP (default minimal=none, xhigh=high, max=high).
   * response_format json_schema is compiled into a whitespace-free grammar and
     sent as vLLM `structured_outputs.grammar` (compact_json.py; LLM_COMPACT_JSON),
     which stops Gemma's whitespace loop under strict schemas.
@@ -63,7 +63,7 @@ def parse_aliases(spec: str) -> dict[str, str]:
 
 
 ALIASES = parse_aliases(os.getenv("LLM_MODEL_ALIASES", ""))
-EFFORT_MAP = parse_aliases(os.getenv("LLM_REASONING_EFFORT_MAP", "minimal=none,low=none,xhigh=high,max=high"))
+EFFORT_MAP = parse_aliases(os.getenv("LLM_REASONING_EFFORT_MAP", "minimal=none,xhigh=high,max=high"))
 DEFAULT_MAX_TOKENS = int(os.getenv("LLM_DEFAULT_MAX_TOKENS", "8192") or 0)
 FOLD_SYSTEM = os.getenv("LLM_FOLD_SYSTEM_PROMPT", "1").strip().lower() not in ("0", "false", "no", "off", "")
 COMPACT_JSON = os.getenv("LLM_COMPACT_JSON", "1").strip().lower() not in ("0", "false", "no", "off", "")
