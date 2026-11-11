@@ -92,6 +92,34 @@
       [data-active-step="4"] .wave .cut,
       [data-active-step="4"] .wave .out { opacity: 1; }
 
+      /* ---- llm-proxy diagram ---- */
+      .proxy line, .proxy path { stroke: var(--lk-muted); stroke-width: 2.5; }
+      .proxy .bx { fill: var(--lk-surface); stroke: var(--lk-muted); stroke-width: 1.5; }
+      .proxy .bx.acc { stroke: var(--lk-accent); stroke-width: 3; fill: var(--lk-accent-soft); }
+      .proxy .t { font-size: 18px; font-weight: 700; }
+      .proxy .s { font-size: 14px; fill: var(--lk-muted); }
+      .proxy .req { font-size: 14px; font-family: var(--lk-mono); fill: var(--lk-accent); }
+
+      /* ---- similarity bars ---- */
+      .sim { display: grid; gap: 12px; margin: 14px 0; }
+      .sim > div { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; }
+      .sim span { grid-column: 1 / -1; font-size: 16px; }
+      .simbar { height: 14px; border-radius: 7px; background: var(--lk-raised); overflow: hidden; }
+      .simbar i { display: block; height: 100%; width: var(--w); background: var(--lk-good); border-radius: 7px; transition: width 1s var(--lk-ease) .3s; }
+      .simbar i.lo { background: var(--lk-muted); }
+      .lk-js .sim > :not(.lk-in) .simbar i { width: 0; }
+      @media (prefers-reduced-motion: reduce) { .simbar i { width: var(--w); transition: none; } }
+
+      /* ---- port tiles / stack ---- */
+      .ports { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0; }
+      .ports div { background: var(--lk-surface); border-radius: 12px; padding: 12px 6px; text-align: center; font-size: 15px; }
+      .ports b { display: block; font-size: 24px; font-family: var(--lk-mono); color: var(--lk-accent); }
+      .stack { display: grid; gap: 10px; margin-top: 14px; }
+      .stack div { background: var(--lk-surface); border-radius: 12px; padding: 12px 14px; border-left: 5px solid var(--lk-good); }
+      .stack code.p { float: right; color: var(--lk-accent); font-weight: 700; }
+      .stack small { display: block; color: var(--lk-muted); font-size: 15px; }
+      .stack .ext { border-left-color: var(--lk-muted); }
+
       /* ---- repo map ---- */
       .tree { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 8px; }
       .tree button {
@@ -171,12 +199,12 @@
       <section class="lk-screen">
         <p class="lk-kicker">The swap list</p>
         <h2>Each cloud service gets a local stand-in</h2>
-        <p>Here's where each one stands today.</p>
+        <p>Here's where each one stands today. "Running" means the container works on its own; <strong>none is wired to the Omi backend yet</strong>.</p>
         <ul class="deps" data-lk-stagger="120">
           <li class="run"><span class="pill">Running</span><div class="what">Speech-to-text</div><div class="swap"><s>Deepgram</s> → our <code>stt</code> service</div></li>
-          <li class="tbd"><span class="pill">TBD</span><div class="what">LLM</div><div class="swap"><s>OpenAI</s> → Gemma on vLLM via an alias layer</div></li>
-          <li class="tbd"><span class="pill">TBD</span><div class="what">Embeddings</div><div class="swap"><s>OpenAI</s> → CPU embedding server</div></li>
-          <li class="tbd"><span class="pill">TBD</span><div class="what">Auth + database</div><div class="swap"><s>Firebase</s> → Firebase Emulator Suite</div></li>
+          <li class="run"><span class="pill">Running</span><div class="what">LLM</div><div class="swap"><s>OpenAI</s> → <code>llm-proxy</code> → Gemma on vLLM</div></li>
+          <li class="run"><span class="pill">Running</span><div class="what">Embeddings</div><div class="swap"><s>OpenAI</s> → <code>embed</code> (BGE-M3 on CPU)</div></li>
+          <li class="run"><span class="pill">Running</span><div class="what">Auth + database</div><div class="swap"><s>Firebase</s> → <code>firebase</code> emulators</div></li>
           <li class="tbd"><span class="pill">TBD</span><div class="what">Search, cache</div><div class="swap">Typesense + Redis containers</div></li>
           <li class="tbd"><span class="pill">TBD</span><div class="what">Audio files</div><div class="swap"><s>Google Cloud Storage</s> → local disk</div></li>
           <li class="off"><span class="pill">Off</span><div class="what">Vector DB, web search, payments…</div><div class="swap">Left unset = feature disabled</div></li>
@@ -187,16 +215,62 @@
         <p class="lk-kicker">Why the LLM is tricky</p>
         <h2>Upstream hard-codes model names</h2>
         <p>Every backend feature asks for <code>gpt-6-luna</code> or <code>gpt-5-nano</code> by name — there's no setting to change it.</p>
-        <div class="lk-compare">
-          <div><strong>Backend asks for</strong><br><code>gpt-6-luna</code></div>
-          <div><strong>Alias layer serves</strong><br>Gemma on vLLM</div>
+        <p>The fix: <code>llm-proxy</code>, a tiny pass-through that rewrites the <code>model</code> field and forwards everything else untouched.</p>
+        <figure class="lk-figure">
+          <svg class="proxy" viewBox="0 0 360 330" data-lk-draw data-lk-stagger-draw="250" role="img" aria-label="Backend sends gpt-6-luna to llm-proxy, which forwards chat to vLLM as Gemma and embeddings to the embed service">
+            <rect class="bx" x="70" y="6" width="220" height="48" rx="12"/>
+            <text x="180" y="36" text-anchor="middle" class="t">Omi backend</text>
+            <text x="192" y="84" class="req">gpt-6-luna</text>
+            <line x1="180" y1="54" x2="180" y2="118"/>
+            <rect class="bx acc" x="70" y="118" width="220" height="56" rx="12"/>
+            <text x="180" y="143" text-anchor="middle" class="t">llm-proxy</text>
+            <text x="180" y="164" text-anchor="middle" class="s">:8101 · renames model</text>
+            <path d="M140 174 L80 250" fill="none"/>
+            <path d="M220 174 L280 250" fill="none"/>
+            <text x="20" y="214" class="s">/chat</text>
+            <text x="352" y="214" class="s" text-anchor="end">/embeddings</text>
+            <rect class="bx" x="6" y="250" width="160" height="70" rx="12"/>
+            <text x="86" y="280" text-anchor="middle" class="t">vLLM</text>
+            <text x="86" y="303" text-anchor="middle" class="s">Gemma 31B · GPU</text>
+            <rect class="bx" x="194" y="250" width="160" height="70" rx="12"/>
+            <text x="274" y="280" text-anchor="middle" class="t">embed</text>
+            <text x="274" y="303" text-anchor="middle" class="s">BGE-M3 · CPU</text>
+          </svg>
+          <figcaption>The backend only needs <code>OPENAI_BASE_URL=http://llm-proxy:8000/v1</code> and a dummy API key.</figcaption>
+        </figure>
+        <div class="lk-callout"><strong>Why a proxy?</strong> Renaming inside vLLM would mean changing the shared vLLM container. A plain pass-through also keeps tool calls and structured output working.</div>
+      </section>
+
+      <!-- EMBEDDINGS -->
+      <section class="lk-screen">
+        <p class="lk-kicker">Embeddings</p>
+        <h2>Turning text into meaning-numbers</h2>
+        <p>An <span class="lk-term">embedding</span> is a list of numbers that describes what a text means. Similar meaning gives similar numbers, even across languages:</p>
+        <div class="sim" data-lk-stagger="200">
+          <div><span>"I'm hungry" ↔ "Ich habe Hunger"</span><div class="simbar"><i style="--w:92%"></i></div><b>0.92</b></div>
+          <div><span>"I'm hungry" ↔ unrelated sentence</span><div class="simbar"><i class="lo" style="--w:32%"></i></div><b>0.32</b></div>
         </div>
-        <p>The plan: point <code>OPENAI_BASE_URL</code> at a small proxy that renames requests on the way through.</p>
+        <p>The <code>embed</code> service runs <strong>BGE-M3</strong> on the CPU and works with English and German.</p>
+        <div class="lk-callout lk-callout--warn"><strong>Heads-up</strong> BGE-M3 vectors have 1024 numbers, OpenAI's have 3072. That's fine while vector search is off, but switching <code>EMBED_MODEL</code> later means re-indexing.</div>
+      </section>
+
+      <!-- FIREBASE -->
+      <section class="lk-screen">
+        <p class="lk-kicker">Auth + database</p>
+        <h2>Firebase, without Google</h2>
+        <p>Omi keeps users, conversations and memories in Firestore. Google ships an <span class="lk-term">emulator</span> of it, a local stand-in that needs no account, and the backend supports it out of the box.</p>
+        <div class="ports" data-lk-stagger="100">
+          <div><b>8103</b>Firestore</div>
+          <div><b>8104</b>Auth</div>
+          <div><b>8105</b>Web UI</div>
+        </div>
+        <p>Open the UI at <code>localhost:8105</code> (over an SSH tunnel for 8103–8106 if you're remote) to browse the data.</p>
+        <div class="lk-callout lk-callout--warn"><strong>Data survives only a clean stop</strong> It's saved to <code>state/firebase/export/</code> on <code>docker compose stop/down/restart</code>. A crash or <code>kill</code> loses everything since the last clean stop.</div>
       </section>
 
       <!-- STT SERVICE -->
       <section class="lk-screen">
-        <p class="lk-kicker">The part that runs today</p>
+        <p class="lk-kicker">Speech-to-text</p>
         <h2>The <code>stt</code> service</h2>
         <p>A small CPU-only web server in <code>services/stt/</code>. It speaks <em>exactly</em> the same protocol as upstream's self-hosted Parakeet service.</p>
         <div class="lk-callout lk-callout--tip"><strong>Why that matters</strong> The Omi backend can use it with zero code changes — just two env vars:
@@ -266,6 +340,20 @@ HOSTED_PARAKEET_API_URL=http://stt:8000</div>
         <p style="margin-top:14px">Batch files go to <code>POST /v1/transcribe</code> or <code>/v2/transcribe</code> instead — same engine, whole file at once.</p>
       </section>
 
+      <!-- STACK -->
+      <section class="lk-screen">
+        <p class="lk-kicker">Your local stack</p>
+        <h2>Four containers, one server</h2>
+        <p>All ports listen on <code>127.0.0.1</code> only. Inside Docker, containers reach each other by name, e.g. <code>http://stt:8000</code>.</p>
+        <div class="stack" data-lk-stagger="120">
+          <div><code class="p">8100</code><strong>stt</strong><small>audio → text</small></div>
+          <div><code class="p">8101</code><strong>llm-proxy</strong><small>OpenAI names → local models</small></div>
+          <div><code class="p">8102</code><strong>embed</strong><small>text → vectors</small></div>
+          <div><code class="p">8103–6</code><strong>firebase</strong><small>Firestore, Auth, web UI</small></div>
+          <div class="ext"><code class="p">8000</code><strong>vLLM</strong><small>already here; this repo doesn't touch it</small></div>
+        </div>
+      </section>
+
       <!-- HANDS ON -->
       <section class="lk-screen">
         <p class="lk-kicker">Hands on</p>
@@ -273,12 +361,15 @@ HOSTED_PARAKEET_API_URL=http://stt:8000</div>
         <ol class="lk-steps">
           <li><strong>Configure.</strong> Every variable is documented inside.
             <div class="cmd">cp .env.example .env</div></li>
-          <li><strong>Start.</strong> First boot downloads models to <code>.cache/models/</code>.
+          <li><strong>Start everything.</strong> First boot downloads models to <code>.cache/models/</code>.
             <div class="cmd">docker compose up -d --build</div></li>
-          <li><strong>Smoke-test</strong> health, batch and streaming.
-            <div class="cmd">scripts/test_stt.sh</div></li>
-          <li><strong>Watch</strong> it work.
-            <div class="cmd">docker compose logs -f stt</div></li>
+          <li><strong>Smoke-test</strong> each service: one script each.
+            <div class="cmd">scripts/test_stt.sh
+scripts/test_llm_proxy.sh
+scripts/test_embed.sh
+scripts/test_firebase.sh</div></li>
+          <li><strong>Watch</strong> the logs.
+            <div class="cmd">docker compose logs -f stt llm-proxy embed firebase</div></li>
         </ol>
       </section>
 
@@ -297,6 +388,13 @@ docker compose up -d stt</div>
 REFERENCE="what was said" \
 scripts/bench_stt.sh my.wav</div>
         <p>Results land in <code>results/bench_stt/</code> with word error rates.</p>
+        <h2 style="margin-top:28px">Check embeddings via the proxy</h2>
+        <div class="cmd">scripts/test_embed.sh http://127.0.0.1:8101</div>
+        <h2 style="margin-top:28px">Check that Firebase data survives a restart</h2>
+        <div class="cmd">scripts/test_firebase.sh --persist</div>
+        <h2 style="margin-top:28px">Wipe the Firebase data</h2>
+        <div class="cmd">docker compose stop firebase
+rm -rf state/firebase/export</div>
       </section>
 
       <!-- REPO MAP -->
@@ -309,12 +407,18 @@ scripts/bench_stt.sh my.wav</div>
             <div id="t1" class="lk-toggle-body" hidden>The living source of truth: hardware, ports, decisions, status. Read it first; keep it updated.</div></li>
           <li><button data-lk-toggle="#t2" aria-expanded="false">services/stt/</button>
             <div id="t2" class="lk-toggle-body" hidden><code>app/main.py</code> endpoints · <code>engines.py</code> the models · <code>pipeline.py</code> VAD + chunking · <code>stream.py</code> live sessions. New engine = subclass <code>Engine</code>.</div></li>
+          <li><button data-lk-toggle="#t6" aria-expanded="false">services/llm-proxy/</button>
+            <div id="t6" class="lk-toggle-body" hidden>One file, <code>app/main.py</code>. Aliases come from <code>LLM_MODEL_ALIASES</code> in <code>.env</code>; a <code>*=target</code> entry catches every unlisted name.</div></li>
+          <li><button data-lk-toggle="#t7" aria-expanded="false">services/embed/</button>
+            <div id="t7" class="lk-toggle-body" hidden>OpenAI-style <code>/v1/embeddings</code> server. It also accepts the token-ID arrays and base64 output that the upstream clients use, which off-the-shelf servers don't.</div></li>
+          <li><button data-lk-toggle="#t8" aria-expanded="false">services/firebase/</button>
+            <div id="t8" class="lk-toggle-body" hidden><code>firebase.json</code> sets the ports; change them there <em>and</em> in compose. Rules and indexes are mounted from <code>upstream/omi/</code>, not copied.</div></li>
           <li><button data-lk-toggle="#t3" aria-expanded="false">scripts/</button>
-            <div id="t3" class="lk-toggle-body" hidden><code>test_stt.sh</code> and <code>bench_stt.sh</code>. Persisted scripts are preferred over one-off commands.</div></li>
+            <div id="t3" class="lk-toggle-body" hidden>A <code>test_*.sh</code> per service, plus <code>bench_stt.sh</code>. Persisted scripts are preferred over one-off commands.</div></li>
           <li><button data-lk-toggle="#t4" aria-expanded="false">upstream/omi/</button>
             <div id="t4" class="lk-toggle-body" hidden>The real Omi code as a git submodule (<code>git submodule update --init</code>). <strong>Never edit it</strong> — configure it from outside.</div></li>
-          <li><button data-lk-toggle="#t5" aria-expanded="false">.cache/ data/ results/</button>
-            <div id="t5" class="lk-toggle-body" hidden>Models, sample audio, benchmark output. Git-ignored.</div></li>
+          <li><button data-lk-toggle="#t5" aria-expanded="false">.cache/ data/ results/ state/</button>
+            <div id="t5" class="lk-toggle-body" hidden>Models, sample audio, benchmark output, and Firebase's saved data. All git-ignored.</div></li>
         </ul>
       </section>
 
@@ -339,6 +443,18 @@ scripts/bench_stt.sh my.wav</div>
           <button data-correct data-why="Exactly — one env var, then restart the container.">Set STT_ENGINE=whisper, then docker compose up -d stt</button>
           <button data-why="Whisper runs on CPU here too.">Free up the GPU</button>
         </div>
+        <div class="lk-quiz" data-lk-quiz style="margin-top:24px">
+          <p class="lk-quiz-q">The backend sends a request for <code>gpt-5-nano</code>. What answers it?</p>
+          <button data-why="Nothing leaves the server — there's no OpenAI key at all.">OpenAI's API</button>
+          <button data-correct data-why="Yes. llm-proxy rewrites the name to Gemma and forwards it to vLLM.">Gemma on vLLM, via llm-proxy</button>
+          <button data-why="embed only handles /v1/embeddings, not chat.">The embed service</button>
+        </div>
+        <div class="lk-quiz" data-lk-quiz style="margin-top:24px">
+          <p class="lk-quiz-q">The server loses power. What happens to Firebase data written since the last clean stop?</p>
+          <button data-why="Saving happens only on a clean stop, so a power cut skips it.">It's safe on disk</button>
+          <button data-correct data-why="Right. The emulator exports on clean stop/restart/down only.">It's lost</button>
+          <button data-why="There's no cloud copy — that's the whole point.">It syncs from Google</button>
+        </div>
       </section>
 
       <!-- RECAP -->
@@ -348,8 +464,8 @@ scripts/bench_stt.sh my.wav</div>
           <ul>
             <li>Omi = pendant → phone → <strong>backend</strong> → STT → LLM → storage.</li>
             <li>This repo replaces each cloud piece with a local container; the GPU stays with vLLM.</li>
-            <li><strong>Running now:</strong> the <code>stt</code> service (Parakeet, Whisper one switch away).</li>
-            <li><strong>Next up:</strong> LLM alias layer, Firebase emulators, Redis, Typesense — then wiring the backend.</li>
+            <li><strong>Running now:</strong> <code>stt</code>, <code>llm-proxy</code>, <code>embed</code>, <code>firebase</code>, each tested on its own.</li>
+            <li><strong>Next up:</strong> Redis, Typesense, local file storage, then run the Omi backend and wire it to all of the above.</li>
             <li>Never edit <code>upstream/</code>; keep <code>AGENTS.md</code> true.</li>
           </ul>
         </div>
