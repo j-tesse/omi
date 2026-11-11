@@ -13,8 +13,9 @@ ARG ANDROID_CMAKE=3.22.1
 ARG UID=1000
 ARG GID=1000
 
+# python3: android/build.gradle runs plugin patch scripts with it.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git curl unzip xz-utils zip file ca-certificates \
+        git curl unzip xz-utils zip file ca-certificates python3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Build user matching the host user, so the bind-mounted source/caches stay

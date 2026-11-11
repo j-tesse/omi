@@ -144,7 +144,7 @@ scripts/build_app.sh     # Android APK in Docker → results/app/<timestamp>/omi
 ```
 
 - Runs Flutter 3.44.5, JDK 21, Android SDK 36 and NDK 28.2 in the
-  `omi-local-app-builder` image (`scripts/build_app/Dockerfile`, ~8 GB). The
+  `omi-local-app-builder` image (`scripts/build_app/Dockerfile`, ~8 GB). The first build (image plus Gradle dependencies) takes about 15 minutes, and a rebuild with warm caches about 3 minutes. The APK is ~179 MB (arm64 release). The
   pub and Gradle caches live in `.cache/app-build/`. The first build takes a
   while, later ones are faster.
 - It exports `upstream/omi/app` at the submodule's HEAD to
