@@ -1,0 +1,94 @@
+# Omi local backend for the Omi mobile app (phone ↔ this server).
+#
+# Rendered by scripts/render_nginx_conf.sh from .env; do not edit the rendered
+# copy in webserver/nginx/conf.d/ by hand. Install steps: docs/mobile-access.md.
+#
+# One plain-HTTP vhost on a private address (LAN or Tailscale IP) serves both
+# things the app talks to:
+#   - the Firebase Auth emulator (Google API paths below) → services/firebase
+#   - everything else (REST, /v4/listen websocket, /_local/storage) → backend
+#
+# Why plain HTTP on an IP, not https://omi.<domain>/:
+#   - The app's local_dev profile (the only one that uses the Auth emulator)
+#     refuses at startup any API URL that isn't loopback, an RFC 1918 / CGNAT
+#     IP literal, or a *.ts.net name (upstream app/lib/env/env.dart
+#     _isLocalDevelopmentApi). A public hostname aborts the app.
+#   - The Firebase SDK always speaks plain HTTP to useAuthEmulator(host, port).
+# So keep this vhost on a trusted network: anyone who can reach it can mint a
+# token for any uid (POST /v1/auth/local-dev/custom-token, by design of the
+# emulator flow) and read /_local/storage without auth.
+#
+# Template variables (from .env, see .env.example "Mobile access"):
+#   OMI_PUBLIC_HOST       private IP the phone uses (server_name)
+#   OMI_ALLOWED_CIDRS     "allow" lines rendered from a space-separated list
+#   OMI_BACKEND_UPSTREAM  host:port of the backend as seen from nginx
+#   OMI_AUTH_UPSTREAM     host:port of the Auth emulator as seen from nginx
+#   OMI_MAX_BODY_SIZE     upload limit (offline audio sync, chat files)
+
+# Upgrade only when the client asks for it (websockets on /v4/listen).
+map $http_upgrade $omi_connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+server {
+    listen 80;
+    server_name ${OMI_PUBLIC_HOST};
+
+    access_log /var/log/nginx/omi-access.log;
+    error_log /var/log/nginx/omi-error.log;
+
+    # Private networks only. A Cloudflare tunnel can't reach this vhost by
+    # name, and if it ever did its source (the docker bridge) isn't listed.
+${OMI_ALLOWED_CIDRS}
+    deny all;
+
+    client_max_body_size ${OMI_MAX_BODY_SIZE};
+
+    # The emulator's admin API (/emulator/v1/projects/.../accounts DELETE wipes
+    # every user) and its OAuth helper pages aren't needed by the app.
+    location /emulator/ {
+        return 403;
+    }
+
+    # Firebase Auth emulator: the client SDK sends
+    #   http://<host>:<port>/identitytoolkit.googleapis.com/v1/...  (sign-in)
+    #   http://<host>:<port>/securetoken.googleapis.com/v1/token    (refresh)
+    location /identitytoolkit.googleapis.com/ {
+        proxy_pass http://${OMI_AUTH_UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /securetoken.googleapis.com/ {
+        proxy_pass http://${OMI_AUTH_UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Omi backend: REST API, /v4/listen (audio websocket), /_local/storage.
+    location / {
+        proxy_pass http://${OMI_BACKEND_UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $omi_connection_upgrade;
+
+        # Listen sessions last as long as the pendant records.
+        proxy_connect_timeout 60;
+        proxy_send_timeout 86400;
+        proxy_read_timeout 86400;
+
+        # Stream audio and uploads straight through.
+        proxy_buffering off;
+        proxy_request_buffering off;
+    }
+}

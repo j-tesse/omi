@@ -85,6 +85,10 @@ services:
       - "127.0.0.1:8104:8104"   # Auth
       - "127.0.0.1:8105:8105"   # Emulator UI
       - "127.0.0.1:8106:8106"   # Firestore UI websocket
+      # Auth only, on docker0, for webserver_nginx (host.docker.internal): the
+      # phone app signs in through the mobile-access vhost (deploy/nginx/).
+      # Not on the LAN directly; nginx filters paths and client IPs.
+      - "172.17.0.1:8104:8104"
     volumes:
       - ./state/firebase:/data
       - ./upstream/omi/firestore.rules:/config/firestore.rules:ro
@@ -275,6 +279,9 @@ services:
       # Pinecone stays off (no PINECONE_API_KEY); optional providers stay unset.
     ports:
       - "127.0.0.1:${BACKEND_PORT:-8109}:8080"
+      # Also on docker0 for webserver_nginx (host.docker.internal:8109), which
+      # serves it to the phone via the mobile-access vhost (deploy/nginx/).
+      - "172.17.0.1:${BACKEND_PORT:-8109}:8080"
     volumes:
       - ./state/storage:/state/storage
     tmpfs: &omi-backend-scratch
