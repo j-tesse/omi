@@ -27,6 +27,8 @@ This project aims to run as much as possible of the Omi AI transcription pendant
 | 8101 (127.0.0.1) | **this project:** LLM alias proxy (`llm-proxy`) |
 | 8102 (127.0.0.1) | **this project:** CPU embedding server (`embed`) |
 | 8103–8106 (127.0.0.1) | **this project:** Firebase emulators (`firebase`): Firestore 8103, Auth 8104, UI 8105, UI websocket 8106 |
+| 8107 (127.0.0.1) | **this project:** Redis (`redis`) |
+| 8108 (127.0.0.1) | **this project:** Typesense (`typesense`) |
 
 ## ☁️ Cloud Dependencies → Local Replacements
 All supporting services run as Docker containers. Vector search performance is not a priority — choose the simplest option that works.
@@ -37,8 +39,8 @@ All supporting services run as Docker containers. Vector search performance is n
 | OpenAI chat (`gpt-6-luna`, `gpt-5-nano`) | LLM (summaries, chat, extraction) | Local vLLM through the `llm-proxy` alias pass-through (`services/llm-proxy/`), since model names are hardcoded upstream (see below) | Running; not yet wired to the Omi backend |
 | OpenAI embeddings (`text-embedding-3-large`) | Memory/conversation vectors | `embed` service (`services/embed/`, BGE-M3 on CPU), reached through `llm-proxy` `/v1/embeddings` | Running; not yet wired to the Omi backend |
 | Pinecone | Vector search | **Optional upstream**: without `PINECONE_API_KEY` the index is disabled. Keep it off at first; add Qdrant/pgvector only if semantic search turns out to be needed | Off |
-| Typesense | Conversation search | `typesense/typesense:27.1` container (upstream harness pin) | TBD |
-| Redis | Cache, rate limits, locks | Redis container | TBD |
+| Typesense | Conversation + memory keyword search | `typesense` service (`typesense/typesense:27.1`, upstream harness pin); `typesense-init` creates the `conversations` collection | Running; not yet wired to the Omi backend |
+| Redis | Cache, rate limits, locks | `redis` service (`redis:7.4.12-alpine`, AOF persistence) | Running; not yet wired to the Omi backend |
 | Firebase Auth + Firestore | Auth & main database | **Firebase Emulator Suite** (`firebase` service, `services/firebase/`). Upstream supports it natively via `FIRESTORE_EMULATOR_HOST` / `FIREBASE_AUTH_EMULATOR_HOST` | Running; not yet wired to the Omi backend |
 | Google Cloud Storage | Audio/file storage | **Upstream local filesystem storage** (`OMI_LOCAL_STORAGE_ROOT`, served at `/_local/storage`) | TBD |
 | Hugging Face models / diarizer | Speaker diarization / embeddings | Upstream `backend/diarizer/` (GPU) — CPU variant TBD; optional | TBD |
@@ -47,7 +49,8 @@ All supporting services run as Docker containers. Vector search performance is n
 
 ## 🛠 Setup & Installation
 1. `cp .env.example .env` and adjust (all variables are documented in `.env.example`; never commit `.env`).
-2. `docker compose up -d --build` — models download into `.cache/models/` on first start.
+2. `mkdir -p state/redis state/typesense` (bind-mount targets must exist and be owned by you, see Redis + Typesense below).
+3. `docker compose up -d --build` — models download into `.cache/models/` on first start.
 
 ### Speech-to-text service (`services/stt/`)
 - CPU-only FastAPI server, **wire-compatible with upstream Omi's self-hosted Parakeet service** (`backend/parakeet/` upstream), so the Omi backend uses it through its built-in Parakeet provider with no code changes: `STT_SERVICE_MODELS=parakeet`, `HOSTED_PARAKEET_API_URL=http://stt:8000`.
@@ -80,6 +83,14 @@ All supporting services run as Docker containers. Vector search performance is n
 - Wiring (pending; values from the harness `_harness_service_extra()`): `FIRESTORE_EMULATOR_HOST=firebase:8103`, `FIREBASE_AUTH_EMULATOR_HOST=firebase:8104`, `FIREBASE_PROJECT_ID` = `FIREBASE_AUTH_PROJECT_ID` = `demo-omi-local`, `FIRESTORE_DATABASE_ID=(default)`, `FIREBASE_API_KEY=local-firebase-auth-emulator-api-key`. A non-loopback emulator host is fine: we checked that `google.cloud.firestore.Client(project=...)` (the backend's `_build_firestore_client` path) and `firebase_admin.auth` work against `firebase:8103/8104` from another container with no credentials. Note that `firebase_admin.firestore.client()` does ask for credentials, but the backend doesn't use it.
 - Not included: the Storage emulator (upstream uses local filesystem storage) and seeding test users (the harness seeds through backend code; revisit once the backend container exists). Making the Auth emulator reachable from the phone is still open.
 
+### Redis + Typesense (`redis`, `typesense`, `typesense-init`; `services/typesense/`)
+- Stock images, no build: `redis:7.4.12-alpine` and `typesense/typesense:27.1` (the upstream harness pin, `TYPESENSE_PINNED_VERSION` in `scripts/dev-harness/dev_harness/config.py`). Both run as uid 1000 with `restart: unless-stopped` and a healthcheck (`redis-cli ping`; Typesense `/health` over bash `/dev/tcp`, since the image has no curl).
+- **Redis:** in-network `redis:6379`, host `127.0.0.1:8107`, **no password** (like the harness). The backend always sends `AUTH default <REDIS_DB_PASSWORD>` (`backend/database/redis_connection.py`), which works because the default user has `nopass`; checked with redis-py. `--protected-mode no` is needed so other containers can connect without a password; the host port is loopback-only. The kernel warning about `vm.overcommit_memory` is harmless at this size.
+- **Typesense:** in-network `http://typesense:8108`, host `127.0.0.1:8108`, admin key `TYPESENSE_API_KEY` from `.env` (required; compose refuses to start without it). CORS is on (like the harness).
+- **Collections:** upstream **reads and upserts the `conversations` collection but never creates it** (`backend/utils/conversations/search.py`, `typesense_index.py`; the docs say to create it by hand from `backend/typesense/conversations.schema`), and the harness doesn't create it either. The one-shot `typesense-init` service (`curlimages/curl:8.17.0`, script `services/typesense/init.sh`) runs after Typesense is healthy on every `up`, creates each mounted `*.schema` collection that is missing, and leaves existing ones alone. The schema is bind-mounted from the submodule, not copied. The memory collection `canonical_memory_atoms` is created by the backend itself on first write (`ensure_memories_collection()` in `backend/utils/memory/atom_keyword_index.py`), so init skips it. When the backend container exists, it should `depends_on: typesense-init: condition: service_completed_successfully`.
+- **Persistence:** `state/redis/` (AOF `appendonlydir/` + RDB snapshot every 60 s if anything changed) and `state/typesense/` (git-ignored). Create both directories before the first start (`mkdir -p state/redis state/typesense`), otherwise Docker creates them root-owned and the uid-1000 containers can't write. To wipe: stop the service, `rm -rf` its directory, recreate it.
+- Wiring (pending; keys from the harness `_harness_service_extra()`): `REDIS_DB_HOST=redis`, `REDIS_DB_PORT=6379`, `REDIS_DB_PASSWORD=` (empty), `TYPESENSE_HOST=typesense`, `TYPESENSE_HOST_PORT=8108`, `TYPESENSE_PROTOCOL=http` (upstream defaults to `https`, so this one must be set), `TYPESENSE_API_KEY=<same as .env>`. Optional upstream knobs left at their defaults: `TYPESENSE_CONNECTION_TIMEOUT_SECONDS` (5), `TYPESENSE_CONVERSATION_INDEX_WRITES` (on whenever `TYPESENSE_HOST` + key are set), `MEMORY_TYPESENSE_COLLECTION` (`canonical_memory_atoms`). The harness's `MEMORY_MODE=read` and `MEMORY_CANONICAL_CONSOLIDATION_ENABLED=true` also touch the memory index; they belong to the backend's env.
+
 ### Upstream Omi (`upstream/omi/`, shallow submodule)
 `git submodule update --init` to fetch it. Pinned at `9f2ddcc` (2026-11-06). Findings from mapping `backend/` (re-check them when bumping the submodule):
 - **Upstream ships a local emulator harness** (`make dev-up`, `scripts/dev-harness/dev_harness/`, runbook `backend/docs/runbooks/local-emulator-manual-qa.md`). It runs the Firebase emulators, `redis-server`, Typesense, `llm_gateway`, `backend` and `desktop-backend` as **host processes** and injects the env in `config.py` `_harness_service_extra()` / `child_env_for()`. This is the reference for our env: we reproduce that env in Docker containers instead of running the harness. Its default ports (backend **8000** = vLLM's port, Firestore 8085, Auth 9099, Redis 6380, Typesense 8108, gateway 9080, desktop 10201) must be remapped.
@@ -92,10 +103,11 @@ All supporting services run as Docker containers. Vector search performance is n
 
 ## 🚀 Commands
 - **Build:** `docker compose build`
-- **Run:** `docker compose up -d` (logs: `docker compose logs -f stt llm-proxy embed firebase`)
+- **Run:** `docker compose up -d` (logs: `docker compose logs -f stt llm-proxy embed firebase redis typesense typesense-init`)
 - **Test LLM proxy:** `scripts/test_llm_proxy.sh [BASE_URL]`: health, model list, and a plain plus a streamed chat completion for each alias.
 - **Test embedding service:** `scripts/test_embed.sh [BASE_URL] [MODEL]`: health, models, and string / list / cl100k token-ID / base64 / `dimensions` requests, plus an EN/DE similarity check and a ~1k-token latency check. Pass `http://127.0.0.1:8101` to test through `llm-proxy`.
 - **Test Firebase emulators:** `scripts/test_firebase.sh [--persist] [FIRESTORE_URL] [AUTH_URL]`: health, a Firestore REST write/read/delete, and an Auth sign-up/sign-in/delete. `--persist` also restarts the container and checks that a document survived.
+- **Test Redis + Typesense:** `scripts/test_redis_typesense.sh [--persist] [REDIS_HOST:PORT] [TYPESENSE_URL]`: health, a Redis SET/GET/DEL with the backend's `AUTH default ""`, the Typesense collection list (fails if `conversations` is missing), and a document upsert/search/delete in `conversations`. `--persist` also restarts both containers and checks that a key and a document survived.
 - **Test STT service:** `scripts/test_stt.sh [AUDIO_FILE] [STREAM_SPEED]` — health, `/v1` + `/v2` batch, and `/v3/stream` replay (via `services/stt/tools/stream_client.py`).
 - **Benchmark STT on CPU:** `scripts/bench_stt.sh [AUDIO_FILE]` — runs faster-whisper and Parakeet (onnx-asr) in a Docker container across thread counts; writes `results/bench_stt/<timestamp>/` (JSONL, summary table, transcripts). Env overrides: `THREADS`, `MODELS`, `LANGUAGE`, `MIN_DURATION`, `REFERENCE` (correct transcript → word error rate), `NOISE` (`white`/`pink`/noise recording) and `SNRS` (e.g. `"clean 10 5 0 noise-only"`) for noise robustness. Without an audio file it loops a short English sample with a built-in reference. Models cache in `.cache/models/`.
 
@@ -106,8 +118,9 @@ All supporting services run as Docker containers. Vector search performance is n
 - `services/llm-proxy/` : OpenAI-compatible model-alias pass-through to vLLM (embeddings go to `embed`).
 - `services/embed/` : OpenAI-compatible CPU embedding server.
 - `services/firebase/` : Firebase Emulator Suite image (`firebase.json`, `entrypoint.sh`).
-- `scripts/` : Persisted helper scripts (`bench_stt.sh` with its container in `scripts/bench_stt/`, `test_stt.sh`, `test_llm_proxy.sh`, `test_embed.sh`, `test_firebase.sh`).
-- `.cache/`, `data/`, `results/`, `state/` : Local model cache, sample audio, benchmark output and persistent service data (`state/firebase/`) (git-ignored).
+- `services/typesense/` : `init.sh` for the one-shot `typesense-init` collection bootstrap (Redis and Typesense themselves use stock images).
+- `scripts/` : Persisted helper scripts (`bench_stt.sh` with its container in `scripts/bench_stt/`, `test_stt.sh`, `test_llm_proxy.sh`, `test_embed.sh`, `test_firebase.sh`, `test_redis_typesense.sh`).
+- `.cache/`, `data/`, `results/`, `state/` : Local model cache, sample audio, benchmark output and persistent service data (`state/firebase/`, `state/redis/`, `state/typesense/`) (git-ignored).
 - `upstream/omi/` : `BasedHardware/omi` as a shallow git submodule. Never copy or edit upstream code here; configure it from the outside.
 
 ## 📌 Status / Decisions
@@ -120,6 +133,7 @@ All supporting services run as Docker containers. Vector search performance is n
 - **LLM aliasing via a proxy container, not vLLM `--served-model-name`**: this leaves the shared vLLM container untouched, and the mapping can change with a restart of `llm-proxy` alone. A plain pass-through was chosen over LiteLLM to keep vLLM-specific features (reasoning parser, tool calls, structured output) working without translation.
 - **Embeddings: BGE-M3 on CPU in a small custom server** (`services/embed/`), chosen because it is multilingual, has an 8k context and needs no query/passage prefix. Measured at 4 threads: ~65 ms for a short sentence, ~2.3 s for a ~1.3k-token input, which is fine for one pendant (embeddings run once per finished conversation and once per search). EN/DE pairs score 0.92 vs 0.32 for an unrelated sentence. Checked with the real `langchain-openai==1.1.14` client through `llm-proxy`.
 - **Firebase emulators in a container, not the upstream harness:** this keeps everything in Docker and keeps the harness's host processes and port defaults out of the way (port 4000, the UI default, is already taken on the host). We copy the harness's flags and env, not its code.
+- **Redis + Typesense as stock containers with an init one-shot, not the harness's host processes:** same versions and env as the harness, but Redis gets AOF persistence (the harness runs it without) so locks and caches survive restarts. The `conversations` collection is created from the submodule's schema file by `typesense-init`, because upstream assumes it already exists.
 - The STT service mirrors the upstream protocol as of Nov 2026 (`backend/parakeet/main.py`, `backend/utils/stt/streaming.py` `ParakeetWebSocketSocket`, `backend/utils/stt/pre_recorded.py`). Re-check it when bumping the upstream submodule.
 
 ## 📝 Guidelines
