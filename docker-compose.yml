@@ -158,3 +158,183 @@ services:
     volumes:
       - ./services/typesense/init.sh:/init.sh:ro
       - ./upstream/omi/backend/typesense/conversations.schema:/schemas/conversations.schema:ro
+
+  # Omi backend (upstream/omi/backend, built from the submodule with upstream's
+  # Dockerfile). The env mirrors the upstream dev harness
+  # (scripts/dev-harness/dev_harness/config.py _harness_service_extra()), with
+  # every dependency pointed at a container of this stack. llm-gateway runs the
+  # same image and env with a different entrypoint, like the harness does.
+  # Offline smoke test: OMI_ENV_STAGE=offline OMI_LLM_GATEWAY_FEATURE_MODE=off
+  # OMI_STT_STUB=1 docker compose up -d backend
+  backend:
+    build:
+      context: ./upstream/omi
+      dockerfile: backend/Dockerfile
+      args:
+        # Upstream's default base (gcr.io/based-hardware-dev/...) is private.
+        PYTHON_BASE_IMAGE: python:3.11-slim-trixie
+    image: omi-local-backend:latest
+    restart: unless-stopped
+    user: "1000:1000"
+    depends_on:
+      llm-gateway: {condition: service_started}
+      firebase: {condition: service_started}
+      stt: {condition: service_started}
+      llm-proxy: {condition: service_started}
+      redis: {condition: service_started}
+      typesense-init: {condition: service_completed_successfully}
+    environment: &omi-backend-env
+      OMI_ENV_STAGE: ${OMI_ENV_STAGE:-local}
+      PROVIDER_MODE: ${OMI_PROVIDER_MODE:-real}
+      ENVIRONMENT: local-docker
+      PYTHONUNBUFFERED: "1"
+      HOME: /tmp
+      # Harness markers: OMI_HARNESS_INSTANCE makes env_loader skip backend/.env
+      # files (the env below is complete); OMI_HARNESS_STATE_ROOT bounds local storage.
+      OMI_HARNESS_INSTANCE: docker
+      OMI_HARNESS_STATE_ROOT: /state
+      # Firebase emulators (services/firebase)
+      FIRESTORE_EMULATOR_HOST: firebase:8103
+      FIREBASE_AUTH_EMULATOR_HOST: firebase:8104
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-demo-omi-local}
+      FIREBASE_AUTH_PROJECT_ID: ${FIREBASE_PROJECT_ID:-demo-omi-local}
+      FIRESTORE_DATABASE_ID: (default)
+      FIREBASE_API_KEY: local-firebase-auth-emulator-api-key
+      # Local filesystem storage instead of GCS, served at /_local/storage
+      OMI_LOCAL_STORAGE_ROOT: /state/storage
+      # The backend itself downloads these links (e.g. Parakeet batch STT), so the
+      # URL must resolve inside the stack too, not only for clients.
+      OMI_LOCAL_STORAGE_BASE_URL: ${OMI_LOCAL_STORAGE_BASE_URL:-http://backend:8080/_local/storage}
+      BUCKET_SPEECH_PROFILES: speech-profiles
+      BUCKET_POSTPROCESSING: postprocessing
+      BUCKET_PRIVATE_CLOUD_SYNC: omi-private-cloud-sync
+      BUCKET_TEMPORAL_SYNC_LOCAL: sync-temporal
+      BUCKET_MEMORIES_RECORDINGS: memories-recordings
+      BUCKET_PLUGINS_LOGOS: plugins-logos
+      BUCKET_APP_THUMBNAILS: app-thumbnails
+      BUCKET_CHAT_FILES: chat-files
+      BUCKET_DESKTOP_UPDATES: desktop-updates
+      BUCKET_SCREEN_FRAMES: screen-frames
+      # Redis + Typesense (contract: redis:6379 no password, typesense:8108 http)
+      REDIS_DB_HOST: redis
+      REDIS_DB_PORT: "6379"
+      REDIS_DB_PASSWORD: ""
+      TYPESENSE_HOST: typesense
+      TYPESENSE_HOST_PORT: "8108"
+      TYPESENSE_PROTOCOL: http
+      TYPESENSE_API_KEY: ${TYPESENSE_API_KEY:?set TYPESENSE_API_KEY in .env}
+      # LLMs: backend -> llm-gateway -> llm-proxy -> vLLM (embeddings -> embed)
+      OPENAI_BASE_URL: http://llm-proxy:8000/v1
+      OPENAI_API_KEY: ${OMI_OPENAI_API_KEY:-sk-local-llm-proxy-not-real}
+      OMI_LLM_GATEWAY_URL: http://llm-gateway:8080
+      OMI_LLM_GATEWAY_SERVICE_TOKEN: ${OMI_LLM_GATEWAY_SERVICE_TOKEN:?set OMI_LLM_GATEWAY_SERVICE_TOKEN in .env}
+      OMI_LLM_GATEWAY_FEATURE_MODE: ${OMI_LLM_GATEWAY_FEATURE_MODE:-gateway}
+      # Backend -> gateway first-byte deadline (upstream 15 s, tuned for OpenAI). Non-streamed
+      # structured output from local Gemma can take longer, especially when vLLM is busy.
+      OMI_LLM_GATEWAY_FIRST_BYTE_TIMEOUT_SECONDS: ${OMI_LLM_GATEWAY_FIRST_BYTE_TIMEOUT_SECONDS:-120}
+      # STT: local Parakeet-compatible service (services/stt)
+      STT_SERVICE_MODELS: parakeet
+      HOSTED_PARAKEET_API_URL: http://stt:8000
+      OMI_STT_STUB: ${OMI_STT_STUB:-}
+      # Conversation enrichment (LLM summary, memories, embeddings) after sync:
+      # with an emulator, upstream defers it to the enrichment outbox, which is
+      # drained only by Cloud Tasks / Cloud Scheduler. These kill switches restore
+      # the eager inline path, so synced conversations get processed locally.
+      SYNC_PROCESSING_HOLD_ENABLED: "false"
+      SYNC_REPROCESS_COALESCE_ENABLED: "false"
+      # Live /v4/listen: without the Parakeet streaming slot every session closes
+      # with transcription_service_unavailable (found by the pusher session).
+      STT_STREAMING_PARAKEET_SLOT_ENABLED: "true"
+      STT_PRERECORDED_MODEL: parakeet
+      # The pre-recorded language guard asks Modulate (cloud) or the self-hosted
+      # gate (/v2/language, 503 in our stt) for the language of users without a
+      # single declared language, and routes "unknown" to Modulate. Our Parakeet
+      # v3 detects EN/DE itself, so skip the guard and always use parakeet.
+      STT_PRERECORDED_LANGUAGE_GUARD_ENABLED: ${STT_PRERECORDED_LANGUAGE_GUARD_ENABLED:-false}
+      # Offline sync (/v2/sync-local-files): let recent uploads without a server
+      # capture manifest take the inline "fresh" lane. Without Cloud Tasks the
+      # "backfill" lane (older than SYNC_FRESH_MAX_AGE_SECONDS, default 6 h) is refused.
+      SYNC_LEGACY_FRESH_ENABLED: ${SYNC_LEGACY_FRESH_ENABLED:-true}
+      SYNC_LEGACY_FRESH_PERCENT: ${SYNC_LEGACY_FRESH_PERCENT:-100}
+      # Set 'on' in every upstream deployment (deploy/runtime_env/*.overlay.yaml) but
+      # not by the harness: the legacy notes path is gone, so without it every
+      # conversation summary fails ("Shaped notes disabled").
+      OMI_SHAPED_AGENT_MODE: "on"
+      # Memory defaults from the harness
+      # Memory intake fence (upstream default off = "Memory writes are globally paused").
+      MEMORY_ENABLED: "on"
+      MEMORY_MODE: read
+      MEMORY_CANONICAL_CONSOLIDATION_ENABLED: "true"
+      # Local secrets
+      ENCRYPTION_SECRET: ${ENCRYPTION_SECRET:?set ENCRYPTION_SECRET in .env}
+      ADMIN_KEY: ${ADMIN_KEY:?set ADMIN_KEY in .env}
+      SCREEN_FRAME_SIGNING_SECRET: ${SCREEN_FRAME_SIGNING_SECRET:?set SCREEN_FRAME_SIGNING_SECRET in .env}
+      BASE_API_URL: http://backend:8080
+      API_BASE_URL: http://backend:8080
+      HOSTED_PUSHER_API_URL: ${HOSTED_PUSHER_API_URL:-}
+      # Pinecone stays off (no PINECONE_API_KEY); optional providers stay unset.
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8109}:8080"
+    volumes:
+      - ./state/storage:/state/storage
+    tmpfs: &omi-backend-scratch
+      # Relative scratch dirs under /app (main.py, sync.py). /app belongs to the
+      # image's uid 10001, but we run as 1000 like the other services.
+      - /app/_temp:mode=1777
+      - /app/_samples:mode=1777
+      - /app/_segments:mode=1777
+      - /app/_speech_profiles:mode=1777
+      - /app/syncing:mode=1777
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/docs"]
+      interval: 30s
+      timeout: 5s
+      start_period: 180s
+      retries: 3
+
+  # Upstream llm_gateway (same image and env as backend). Authenticates callers
+  # with OMI_LLM_GATEWAY_SERVICE_TOKEN and calls {OPENAI_BASE_URL}/chat/completions.
+  llm-gateway:
+    image: omi-local-backend:latest
+    restart: unless-stopped
+    user: "1000:1000"
+    depends_on:
+      - llm-proxy
+      - firebase
+    environment: *omi-backend-env
+    tmpfs: *omi-backend-scratch
+    command: ["uvicorn", "llm_gateway.main:app", "--host", "0.0.0.0", "--port", "8080"]
+    ports:
+      - "127.0.0.1:${LLM_GATEWAY_PORT:-8110}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
+  # One-shot: seed the upstream harness's synthetic local users (alice, bob,
+  # local_default_user, ...) and their happy_path memories into the emulators,
+  # by running upstream's own seeder (scripts/dev-harness/seed-memory-scenario.py)
+  # from the read-only submodule. It shares firebase's network namespace because
+  # the harness only talks to 127.0.0.1:<port>. Idempotent.
+  #   COMPOSE_PROJECT_NAME=omi docker compose run --rm --no-deps backend-seed [SCENARIO]
+  backend-seed:
+    image: omi-local-backend:latest
+    profiles: ["tools"]
+    user: "1000:1000"
+    network_mode: "service:firebase"
+    working_dir: /repo
+    environment:
+      HOME: /tmp
+      PYTHONPATH: /repo/scripts/dev-harness
+      OMI_LOCAL_STATE_ROOT: /state/harness
+      OMI_HARNESS_FIRESTORE_PORT: "8103"
+      OMI_HARNESS_AUTH_PORT: "8104"
+      # Ports the seeder never contacts, moved off firebase's 8103/8104 range.
+      OMI_HARNESS_REDIS_PORT: "6379"
+    volumes:
+      - ./upstream/omi:/repo:ro
+      - ./state/harness:/state/harness
+    entrypoint: ["python", "scripts/dev-harness/seed-memory-scenario.py"]
+    command: ["happy_path"]
