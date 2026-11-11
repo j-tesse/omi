@@ -68,7 +68,7 @@ doc = json.load(sys.stdin)["fields"]
 status = doc.get("status", {}).get("stringValue")
 structured = doc.get("structured", {})
 kind = "map" if "mapValue" in structured else ("encrypted string" if "stringValue" in structured else "missing")
-print(f"status={status} structured={kind} discarded={doc.get('discarded', {}).get('booleanValue')} ({len(doc)} fields)")
+print(f"status={status} structured={kind} discarded={doc.get("discarded", {}).get("booleanValue")} ({len(doc)} fields)")
 sys.exit(0 if status == "completed" and kind != "missing" else 1)
 '
 echo "OK: conversation $cid finalized by the pusher"

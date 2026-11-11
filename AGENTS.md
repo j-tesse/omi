@@ -153,7 +153,7 @@ All supporting services run as Docker containers. Vector search performance is n
 - The user must exist in Firestore (seeded or signed up): an unknown uid is closed with `Bad user`.
 - The finalizer's LLM discard check (`conv_discard`) drops content-free conversations, such as the repeated JFK quote. Those come out `completed` + `discarded`, with no summary, which is correct behaviour.
 
-**Verified** (`scripts/test_pusher.sh`): a 55 s synthetic two-voice planning conversation is streamed live as PCM16 for the seeded user `alice`. 120 s of silence later the pusher finalizes it in about 30–60 s: title, overview, category `work`, action items, 4 memories (sent back to the client as `memory_created`), audio merged in local storage, and the finalization job at `terminal_outcome=success`, `fanout_status=completed`. That run used a throwaway second backend container with the two backend settings above, because the shared `backend` is owned by the backend chunk.
+**Verified** (`scripts/test_pusher.sh`): a 55 s synthetic two-voice planning conversation is streamed live as PCM16 for the seeded user `alice`. 120 s of silence later the pusher finalizes it in about 30–60 s: title, overview, category `work`, action items, 4 memories (sent back to the client as `memory_created`), audio merged in local storage, and the finalization job at `terminal_outcome=success`, `fanout_status=completed`. Verified against the shared `backend` after the backend PR merged, and `scripts/test_backend.sh` still passes.
 
 ### Upstream Omi (`upstream/omi/`, shallow submodule)
 `git submodule update --init` to fetch it. Pinned at `9f2ddcc` (2026-11-06). Findings from mapping `backend/` (re-check them when bumping the submodule):
