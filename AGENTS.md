@@ -31,7 +31,7 @@ This project aims to run as much as possible of the Omi AI transcription pendant
 | 8108 (127.0.0.1) | **this project:** Typesense (`typesense`) |
 | 8109 (127.0.0.1) | **this project:** Omi backend (`backend`, in-network `backend:8080`) |
 | 8110 (127.0.0.1) | **this project:** upstream `llm_gateway` (`llm-gateway`, in-network `llm-gateway:8080`) |
-| 8111 (127.0.0.1) | reserved: pusher (`pusher:8080`, other session) |
+| 8111 (127.0.0.1) | **this project:** Omi pusher (`pusher`, conversation finalization worker) |
 | 8104 (172.17.0.1) | **this project:** Auth emulator on docker0, only for `webserver_nginx` (mobile access) |
 | 80 on 192.168.5.53 | **this project:** mobile-access vhost in `webserver_nginx` (`deploy/nginx/`, installed by hand) |
 
@@ -132,6 +132,19 @@ All supporting services run as Docker containers. Vector search performance is n
 - **App build:** `scripts/build_app.sh` runs Flutter in Docker (`scripts/build_app/Dockerfile`: Flutter 3.44.5, JDK 21, SDK 36, NDK 28.2). It exports `upstream/omi/app` to `.cache/app-build/src/`, applies what `setup.sh android` does there, and writes `results/app/<ts>/omi-dev-<sha>-release.apk` (arm64, signed with upstream's public debug keystore). iOS needs a Mac (`docs/mobile-access.md`).
 - **Backend for nginx:** also published on `172.17.0.1:8109` (docker0). `OMI_LOCAL_STORAGE_BASE_URL` keeps its in-stack default `http://backend:8080/_local/storage`. Pointing it at the vhost would break batch STT: the backend's own requests reach nginx masqueraded as `172.18.0.1` (the webserver bridge gateway, also cloudflared's source), which the allowlist rejects on purpose. As a result, storage links the app gets (e.g. recording playback) don't resolve on the phone. That's a known limitation.
 
+### Pusher (`pusher`, upstream `backend/pusher/`)
+**Why it's needed.** A live `/v4/listen` session on the backend ends a conversation after `conversation_timeout` seconds of silence (the minimum and default is 120 s; `lifecycle_loop` in `routers/listen/conversations.py`) or, on reconnect, in `prepare()` / stale recovery. In each case `schedule_finalization()` hands the conversation to the pusher over a websocket (`{HOSTED_PUSHER_API_URL}/v1/trigger/listen`). The only alternative is Cloud Tasks (`LISTEN_FINALIZATION_DISPATCH_MODE=cloud_tasks`, GCP-only). If neither is configured, the backend logs `Pusher unavailable; finalization remains queued` and the conversation **stays `in_progress` forever**: no title, summary, action items, memories or embedding. The one exception is the app's explicit `POST /v1/conversations` ("stop recording" in the app), which processes the in-progress conversation inline on the backend. A pendant session that just goes quiet never uses that path.
+
+**What it does.** The same codebase as the backend, run as `uvicorn pusher.main:app`. The backend opens one pusher websocket per listen session and sends binary frames (`routers/pusher.py`):
+- `104` process conversation → `process_conversation_task` runs the **whole finalizer in the pusher process**: LLM structuring (title/overview/action items/events), memory extraction, embedding, Typesense index, apps and webhooks. So the pusher needs the backend's full env (Firestore/Auth emulators, Redis, Typesense, `OPENAI_BASE_URL`, `ENCRYPTION_SECRET`, storage...).
+- `102` transcript segments → realtime integrations (transcript webhooks, apps). Without the pusher the backend calls these inline.
+- `101` audio bytes → audio-bytes webhooks/apps and private-cloud-sync audio upload (storage). `105` speaker-sample extraction (speech profiles / person voice learning). `103` conversation id, `100` heartbeat.
+- `HOSTED_PUSHER_API_URL` also gates server-side batch STT (`config/server_batch.py`), which only applies to desktop/web and private cloud sync, so it doesn't affect the pendant.
+
+**Startup requirements** (`backend/pusher/main.py`): `MEMORY_ENABLED=on` (otherwise startup fails: "conversation.finalize.persisted requires memory.canonical.mutate"), and `STT_SERVICE_MODELS` must not list `soniox` without a key. `/health` is liveness, `/ready` is readiness.
+
+**Image:** built from `upstream/omi/backend/pusher/Dockerfile` (context `upstream/omi`). Upstream's base image `gcr.io/based-hardware-dev/python:3.11-slim-forky` is private, so we pass `PYTHON_BASE_IMAGE=python:3.11-slim-trixie` (Docker Hub has no `forky` tag).
+
 ### Upstream Omi (`upstream/omi/`, shallow submodule)
 `git submodule update --init` to fetch it. Pinned at `9f2ddcc` (2026-11-06). Findings from mapping `backend/` (re-check them when bumping the submodule):
 - **Upstream ships a local emulator harness** (`make dev-up`, `scripts/dev-harness/dev_harness/`, runbook `backend/docs/runbooks/local-emulator-manual-qa.md`). It runs the Firebase emulators, `redis-server`, Typesense, `llm_gateway`, `backend` and `desktop-backend` as **host processes** and injects the env in `config.py` `_harness_service_extra()` / `child_env_for()`. This is the reference for our env: we reproduce that env in Docker containers instead of running the harness. Its default ports (backend **8000** = vLLM's port, Firestore 8085, Auth 9099, Redis 6380, Typesense 8108, gateway 9080, desktop 10201) must be remapped.
@@ -140,7 +153,8 @@ All supporting services run as Docker containers. Vector search performance is n
 - **LLM routing** (`backend/utils/llm/model_config.py`): every feature maps to a hardcoded model, `gpt-6-luna` or `gpt-5-nano`, with provider `openai`, and there is no per-feature env override. Calls go either directly through `ChatOpenAI` or through `llm_gateway` (`OMI_LLM_GATEWAY_FEATURE_MODE=gateway`, the harness default). The gateway reads `OPENAI_BASE_URL`, and its lanes only use those two OpenAI models. `web_search` → Perplexity (leave off). **Plan:** set `OPENAI_BASE_URL` to an alias layer that maps `gpt-6-luna` / `gpt-5-nano` → Gemma on vLLM and `text-embedding-3-large` → a local embedding model. Done for chat via the `llm-proxy` container, which leaves the vLLM container unchanged. Gemma has to cope with the structured-output features (`_STRUCTURED_OUTPUT_FEATURES`).
 - **STT:** `STT_SERVICE_MODELS=parakeet` + `HOSTED_PARAKEET_API_URL` uses our `stt` service, the same keyless chain the offline harness pins. Deepgram was retired upstream on 2026-08-27.
 - **Required secrets:** `ENCRYPTION_SECRET` (≥32 bytes, encrypts conversations, memories and chat) and `ADMIN_KEY` (local auth bypass `ADMIN_KEY<uid>`).
-- **Open questions:** the pusher (`backend/pusher/`) is needed for live `/v4/listen` finalization (see the backend section; handled by another session). `desktop-backend` (Rust/desktop) is probably not needed for the pendant.
+- **Pusher: needed** (resolved, see the pusher section below). Without `HOSTED_PUSHER_API_URL` live conversations from the pendant never leave `in_progress`. The harness doesn't start it, so harness live sessions never finalize automatically either.
+- **Open questions:** `desktop-backend` (Rust/desktop) is probably not needed for the pendant.
 
 ## 🚀 Commands
 - **Build:** `docker compose build`
