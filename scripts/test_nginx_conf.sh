@@ -84,6 +84,14 @@ idtok=$(echo "$resp" | field '["idToken"]')
 refresh=$(echo "$resp" | field '["refreshToken"]')
 echo "auth emulator sign-in: ok"
 
+# The Android SDK signs in with the legacy v3 path (seen from a Pixel build).
+custom2=$(curl -fsS "${H[@]}" -X POST "$BASE/v1/auth/local-dev/custom-token" -d "uid=$UID_" | field '["custom_token"]') \
+  || fail "local-dev custom token (v3)"
+curl -fsS "${H[@]}" "$BASE/www.googleapis.com/identitytoolkit/v3/relyingparty/verifyCustomToken?key=fake" \
+  -H 'Content-Type: application/json' -d "{\"token\":\"$custom2\",\"returnSecureToken\":true}" | field '["idToken"]' >/dev/null \
+  || fail "legacy v3 verifyCustomToken via nginx (Android SDK path)"
+echo "auth emulator sign-in, legacy v3 (Android): ok"
+
 idtok2=$(curl -fsS "${H[@]}" "$BASE/securetoken.googleapis.com/v1/token?key=fake" \
   -d "grant_type=refresh_token&refresh_token=$refresh" | field '["id_token"]') || fail "token refresh via nginx"
 [ -n "$idtok2" ] && echo "token refresh: ok"

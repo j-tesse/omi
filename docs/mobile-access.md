@@ -7,7 +7,8 @@ shared `webserver_nginx`, so the repo can't do them for you.
 ```
 pendant ──BLE──▶ phone (our Omi "dev" build) ──HTTP/WS, LAN or VPN──▶ webserver_nginx :80
                                                      vhost 192.168.5.53 (deploy/nginx/)
-                    /identitytoolkit.googleapis.com/, /securetoken.googleapis.com/ ─▶ firebase:8104 (Auth emulator)
+                    /identitytoolkit.googleapis.com/, /securetoken.googleapis.com/,
+                    /www.googleapis.com/identitytoolkit/ (legacy v3, Android SDK) ──▶ firebase:8104 (Auth emulator)
                     everything else (/v1…, /v4/listen, /_local/storage) ──────────────▶ backend:8080
 ```
 
