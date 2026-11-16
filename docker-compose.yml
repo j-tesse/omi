@@ -194,6 +194,9 @@ services:
       ENVIRONMENT: local-docker
       PYTHONUNBUFFERED: "1"
       HOME: /tmp
+      # Runtime fixes for upstream bugs (services/backend-patches/, mounted below):
+      # its sitecustomize.py patches upstream modules on import, without editing them.
+      PYTHONPATH: /opt/omi-local-patches
       # Harness markers: OMI_HARNESS_INSTANCE makes env_loader skip backend/.env
       # files (the env below is complete); OMI_HARNESS_STATE_ROOT bounds local storage.
       OMI_HARNESS_INSTANCE: docker
@@ -258,9 +261,18 @@ services:
       STT_PRERECORDED_LANGUAGE_GUARD_ENABLED: ${STT_PRERECORDED_LANGUAGE_GUARD_ENABLED:-false}
       # Offline sync (/v2/sync-local-files): let recent uploads without a server
       # capture manifest take the inline "fresh" lane. Without Cloud Tasks the
-      # "backfill" lane (older than SYNC_FRESH_MAX_AGE_SECONDS, default 6 h) is refused.
+      # "backfill" lane (older than SYNC_FRESH_MAX_AGE_SECONDS) is refused, so raise
+      # the fresh cutoff from upstream's 6 h to the 30-day backfill lookback
+      # (SYNC_BACKFILL_MAX_AGE_SECONDS). The app sends no device id, so recordings the
+      # pendant held for more than 6 h were otherwise dead-lettered and retried forever.
       SYNC_LEGACY_FRESH_ENABLED: ${SYNC_LEGACY_FRESH_ENABLED:-true}
       SYNC_LEGACY_FRESH_PERCENT: ${SYNC_LEGACY_FRESH_PERCENT:-100}
+      SYNC_FRESH_MAX_AGE_SECONDS: ${SYNC_FRESH_MAX_AGE_SECONDS:-2592000}
+      # Per-uid token bucket on that lane (utils/sync/legacy_fresh.py): one token per
+      # upload or per MiB. Over budget falls back to backfill (= refused), so a catch-up
+      # sync after a day away hit it. Upstream 10 / 60; these are the code's maximums.
+      SYNC_LEGACY_FRESH_BURST_TOKENS: ${SYNC_LEGACY_FRESH_BURST_TOKENS:-60}
+      SYNC_LEGACY_FRESH_HOURLY_TOKENS: ${SYNC_LEGACY_FRESH_HOURLY_TOKENS:-120}
       # Set 'on' in every upstream deployment (deploy/runtime_env/*.overlay.yaml) but
       # not by the harness: the legacy notes path is gone, so without it every
       # conversation summary fails ("Shaped notes disabled").
@@ -287,6 +299,7 @@ services:
       - "172.17.0.1:${BACKEND_PORT:-8109}:8080"
     volumes:
       - ./state/storage:/state/storage
+      - ./services/backend-patches:/opt/omi-local-patches:ro
     tmpfs: &omi-backend-scratch
       # Relative scratch dirs under /app (main.py, sync.py). /app belongs to the
       # image's uid 10001, but we run as 1000 like the other services.
@@ -312,6 +325,8 @@ services:
       - llm-proxy
       - firebase
     environment: *omi-backend-env
+    volumes:
+      - ./services/backend-patches:/opt/omi-local-patches:ro
     tmpfs: *omi-backend-scratch
     command: ["uvicorn", "llm_gateway.main:app", "--host", "0.0.0.0", "--port", "8080"]
     ports:
@@ -355,6 +370,7 @@ services:
       - "127.0.0.1:${PUSHER_PORT:-8111}:8080"
     volumes:
       - ./state/storage:/state/storage
+      - ./services/backend-patches:/opt/omi-local-patches:ro
     tmpfs: *omi-backend-scratch
     healthcheck:
       test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/ready"]
