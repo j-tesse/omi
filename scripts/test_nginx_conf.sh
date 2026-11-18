@@ -9,8 +9,9 @@
 #   --live: also starts a throwaway nginx on the omi_default network (upstreams
 #      backend:8080 and firebase:8104) and walks the app's flow through it:
 #      local-dev custom token → Auth emulator sign-in + token refresh →
-#      authenticated REST (GET /v1/users/onboarding) → /v4/listen websocket upgrade, plus the
-#      /emulator/ block and the IP allowlist. Needs backend + firebase running.
+#      authenticated REST (GET /v1/users/onboarding) → /v4/listen websocket upgrade, the
+#      /app/ APK downloads (apk-server), plus the /emulator/ block and the IP allowlist.
+#      Needs backend + firebase + apk-server running.
 #      Creates (and deletes) the emulator user "smoke-mobile-access".
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -57,7 +58,7 @@ PORT="${TEST_PORT:-18180}"
 # Host-loopback clients reach the container from the network gateway
 # (docker-proxy), so allow only that address; the in-container check below
 # (source 127.0.0.1) must then be denied.
-OMI_ALLOWED_CIDRS="$GW" OMI_BACKEND_UPSTREAM=backend:8080 OMI_AUTH_UPSTREAM=firebase:8104 \
+OMI_ALLOWED_CIDRS="$GW" OMI_BACKEND_UPSTREAM=backend:8080 OMI_AUTH_UPSTREAM=firebase:8104 OMI_APK_UPSTREAM=apk-server:8080 \
   scripts/render_nginx_conf.sh -o "$TMP/live.conf" 2>/dev/null
 chmod 644 "$TMP/live.conf"
 CTR=$(docker run -d --network "$NET" -p "127.0.0.1:$PORT:80" \
@@ -108,6 +109,13 @@ status=$(curl -s -i -N --http1.1 --max-time 5 "${H[@]}" \
   -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H "Authorization: Bearer $idtok" \
   "$BASE/v4/listen?uid=$UID_&language=en&sample_rate=16000&codec=pcm16&channels=1&source=phone" 2>/dev/null | head -1 | tr -d '\r') || true
 case "$status" in *" 101"*) echo "websocket /v4/listen: $status" ;; *) fail "websocket upgrade: '${status:-no response}'" ;; esac
+
+code=$(curl -s -o /dev/null -w '%{http_code}' "${H[@]}" "$BASE/app")
+[ "$code" = 301 ] || fail "/app should redirect to /app/, got $code"
+curl -fsS "${H[@]}" "$BASE/app/" | grep -q 'latest.apk' || fail "/app/ index (run scripts/publish_app.sh; apk-server up?)"
+ctype=$(curl -fsS -o /dev/null -r 0-1023 -w '%{content_type}' "${H[@]}" "$BASE/app/latest.apk") || fail "/app/latest.apk"
+[ "$ctype" = application/vnd.android.package-archive ] || fail "/app/latest.apk content type '$ctype'"
+echo "app downloads: /app/ index + latest.apk ($ctype)"
 
 code=$(curl -s -o /dev/null -w '%{http_code}' "${H[@]}" "$BASE/emulator/v1/projects/${FIREBASE_PROJECT_ID:-demo-omi-local}/config")
 [ "$code" = 403 ] || fail "/emulator/ should be blocked, got $code"

@@ -125,6 +125,10 @@ unencrypted. So:
   recording) don't resolve on the phone. Fixing that would take a
   storage-only exception in nginx, or split-horizon DNS with a hostname the
   app accepts (`*.ts.net`).
+- `apk-server`: download page for the built APKs, published on
+  `172.17.0.1:8112` (and `127.0.0.1:8112`). It serves `results/app/`
+  read-only; the vhost exposes it at `/app/`. Start it with
+  `docker compose up -d apk-server`.
 
 ### 2. Install the nginx vhost **[you]**
 
@@ -147,6 +151,10 @@ When the template changes, render and reload again. To remove it, delete
 ```bash
 scripts/build_app.sh     # Android APK in Docker → results/app/<timestamp>/omi-dev-<sha>-release.apk
 ```
+
+At the end it runs `scripts/publish_app.sh`, which points `results/app/latest.apk`
+at the new build and rewrites `results/app/index.html` (all builds, newest
+first). Run it by hand after deleting old builds.
 
 - Runs Flutter 3.44.5, JDK 21, Android SDK 36 and NDK 28.2 in the
   `omi-local-app-builder` image (`scripts/build_app/Dockerfile`, ~8 GB). The
@@ -188,8 +196,11 @@ our vhost.) This path hasn't been tested here.
 
 ### 4. Install, sign in, pair **[you]**
 
-1. Copy the APK to the Android phone and open it (allow "install unknown
-   apps"), or use `adb install -r omi-dev-*.apk`.
+1. On the phone (home Wi-Fi), open **`http://192.168.5.53/app/`** in the
+   browser and tap **Download latest APK**, then open the download and allow
+   the browser to install unknown apps. A newer build installs over the old
+   one in place (same signing key) and keeps the app signed in. Alternatives:
+   copy the APK over, or `adb install -r results/app/latest.apk`.
 2. Connect the phone to the home Wi-Fi (or Tailscale), open "Omi Dev" and tap
    **Sign in (local dev)**.
 3. Go through onboarding and pair the pendant over Bluetooth as usual.
@@ -200,8 +211,9 @@ our vhost.) This path hasn't been tested here.
 - `scripts/test_nginx_conf.sh --live` starts a throwaway nginx on
   `omi_default` and walks the app's flow through it: custom token → emulator
   sign-in and token refresh → `GET /v1/users/profile` → `/v4/listen` websocket
-  upgrade, plus the `/emulator/` block and the allowlist. It needs `backend`
-  and `firebase` running, and doesn't touch `webserver_nginx`.
+  upgrade, the `/app/` APK downloads, plus the `/emulator/` block and the
+  allowlist. It needs `backend`, `firebase` and `apk-server` running, and
+  doesn't touch `webserver_nginx`.
 - After installing the vhost, watch `~/src/webserver/logs/nginx/omi-access.log`
   while using the phone.
 
