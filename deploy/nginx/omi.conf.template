@@ -23,6 +23,7 @@
 #   OMI_ALLOWED_CIDRS     "allow" lines rendered from a space-separated list
 #   OMI_BACKEND_UPSTREAM  host:port of the backend as seen from nginx
 #   OMI_AUTH_UPSTREAM     host:port of the Auth emulator as seen from nginx
+#   OMI_APK_UPSTREAM      host:port of apk-server (app downloads at /app/)
 #   OMI_MAX_BODY_SIZE     upload limit (offline audio sync, chat files)
 
 # Upgrade only when the client asks for it (websockets on /v4/listen).
@@ -80,6 +81,21 @@ ${OMI_ALLOWED_CIDRS}
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Android app downloads (apk-server, results/app/): open
+    # http://<host>/app/ in the phone's browser. The backend has no /app routes.
+    location = /app {
+        return 301 /app/;
+    }
+    location /app/ {
+        proxy_pass http://${OMI_APK_UPSTREAM}/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # ~180 MB APKs: stream instead of spooling to nginx's temp dir.
+        proxy_buffering off;
+        proxy_read_timeout 600;
     }
 
     # Omi backend: REST API, /v4/listen (audio websocket), /_local/storage.

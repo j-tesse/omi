@@ -14,7 +14,8 @@
 # HEAD into .cache/app-build/src/ and configured there the way upstream's
 # app/setup.sh does for `setup.sh android` (local emulator Firebase configs,
 # .dev.env, prebuilt debug keystore), then built with `flutter build apk`.
-# Output: results/app/<timestamp>/omi-dev-<sha>.apk (+ build-info.txt).
+# Output: results/app/<timestamp>/omi-dev-<sha>.apk (+ build-info.txt), then
+# scripts/publish_app.sh updates results/app/latest.apk + index.html (apk-server).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
@@ -106,4 +107,6 @@ auth_emulator=$AUTH_HOST:$AUTH_PORT
 built=$(date -Is)
 EOF
 echo "== done: $OUT/omi-dev-${SHA:0:12}-$MODE.apk"
-echo "Install: adb install -r <apk>, or copy it to the phone and open it (allow unknown sources)."
+scripts/publish_app.sh
+echo "Install: open the download page above on the phone (needs apk-server + the nginx vhost),"
+echo "or adb install -r results/app/latest.apk."

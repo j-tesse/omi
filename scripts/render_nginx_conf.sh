@@ -5,7 +5,11 @@
 # Install: docs/mobile-access.md ("Install the nginx vhost").
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# Variables set by the caller win over .env (scripts/test_nginx_conf.sh --live
+# renders with its own allowlist and upstreams).
+caller_env=$(for v in $(compgen -v OMI_) APK_SERVER_PORT; do [ -n "${!v+x}" ] && declare -p "$v"; done 2>/dev/null || true)
 [ -f .env ] && set -a && . ./.env && set +a
+eval "$caller_env"
 OUT=-
 if [ "${1:-}" = "-o" ]; then OUT="${2:?-o needs a file}"; fi
 
@@ -15,6 +19,7 @@ if [ "${1:-}" = "-o" ]; then OUT="${2:?-o needs a file}"; fi
 OMI_ALLOWED_CIDRS="${OMI_ALLOWED_CIDRS:-192.168.0.0/16 10.0.0.0/8 100.64.0.0/10}"
 OMI_BACKEND_UPSTREAM="${OMI_BACKEND_UPSTREAM:-host.docker.internal:8109}"
 OMI_AUTH_UPSTREAM="${OMI_AUTH_UPSTREAM:-host.docker.internal:8104}"
+OMI_APK_UPSTREAM="${OMI_APK_UPSTREAM:-host.docker.internal:${APK_SERVER_PORT:-8112}}"
 OMI_MAX_BODY_SIZE="${OMI_MAX_BODY_SIZE:-500m}"
 
 # The app rejects anything but a private IP literal or a *.ts.net name.
@@ -31,11 +36,11 @@ for cidr in $OMI_ALLOWED_CIDRS; do
   [[ "$cidr" =~ ^[0-9a-fA-F.:/]+$ ]] || { echo "bad CIDR in OMI_ALLOWED_CIDRS: $cidr" >&2; exit 1; }
   allow_lines+="    allow ${cidr};"$'\n'
 done
-export OMI_PUBLIC_HOST OMI_BACKEND_UPSTREAM OMI_AUTH_UPSTREAM OMI_MAX_BODY_SIZE
+export OMI_PUBLIC_HOST OMI_BACKEND_UPSTREAM OMI_AUTH_UPSTREAM OMI_APK_UPSTREAM OMI_MAX_BODY_SIZE
 export OMI_ALLOWED_CIDRS="${allow_lines%$'\n'}"
 
 # Only substitute our variables; nginx's own $vars stay untouched.
-vars='${OMI_PUBLIC_HOST} ${OMI_ALLOWED_CIDRS} ${OMI_BACKEND_UPSTREAM} ${OMI_AUTH_UPSTREAM} ${OMI_MAX_BODY_SIZE}'
+vars='${OMI_PUBLIC_HOST} ${OMI_ALLOWED_CIDRS} ${OMI_BACKEND_UPSTREAM} ${OMI_AUTH_UPSTREAM} ${OMI_APK_UPSTREAM} ${OMI_MAX_BODY_SIZE}'
 if [ "$OUT" = - ]; then
   envsubst "$vars" < deploy/nginx/omi.conf.template
 else

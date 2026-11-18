@@ -12,12 +12,16 @@ import importlib.util
 import logging
 import sys
 
-from . import local_storage
+from . import local_storage, v3_action_items_lane, v3_local_queue, v3_participants
 
 log = logging.getLogger('omi_local_patches')
 
 PATCHES = {
     'utils.other.local_storage': local_storage.apply,
+    'utils.llm.model_config': v3_action_items_lane.apply,
+    'utils.conversations.v3.triggers': v3_local_queue.apply,
+    'utils.conversations.v3.planner': v3_participants.apply_planner,
+    'utils.conversations.v3.service': v3_participants.apply_service,
 }
 
 
